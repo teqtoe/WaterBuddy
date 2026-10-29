@@ -1,12 +1,19 @@
 package com.waterbuddy.app
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,24 +25,37 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.PI
+import kotlin.math.sin
 
 @Composable
 fun WaterBuddyTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(
-            primary = Color(0xFF0288D1),
+            primary = Brand.Primary,
             onPrimary = Color.White,
-            secondary = Color(0xFF1ABC9C),
-            background = Color(0xFFF2F9FF),
-            surface = Color.White,
-            primaryContainer = Color(0xFFD7EFFC),
-            onPrimaryContainer = Color(0xFF0D2B3E)
+            secondary = Brand.Secondary,
+            tertiary = Brand.Accent,
+            background = Brand.Background,
+            surface = Brand.Card,
+            primaryContainer = Color(0xFFE3ECFF),
+            onPrimaryContainer = Brand.Ink,
+            secondaryContainer = Color(0xFFD9F6FC),
+            onSecondaryContainer = Brand.Ink
         ),
         content = content
     )
@@ -45,14 +65,14 @@ fun WaterBuddyTheme(content: @Composable () -> Unit) {
 @Composable
 fun SpeechBubble(text: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(shape = RoundedCornerShape(20.dp), color = Color.White, shadowElevation = 3.dp) {
+        Surface(shape = RoundedCornerShape(20.dp), color = Color.White, shadowElevation = 4.dp) {
             AnimatedContent(targetState = text, label = "bubble") { t ->
                 Text(
                     t,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
-                    color = Color(0xFF1B3A4B)
+                    color = Brand.Ink
                 )
             }
         }
@@ -64,32 +84,80 @@ fun SpeechBubble(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** சின்ன கிளாஸ் ஐகான் — குடிச்சது நிரம்பியிருக்கும். */
+/** வட்டமான தண்ணீர் progress — உள்ளே அலை அசையும் 🌊 */
 @Composable
-fun GlassIcon(filled: Boolean, modifier: Modifier = Modifier) {
-    val level by animateFloatAsState(if (filled) 0.8f else 0f, tween(700), label = "glass")
-    Canvas(modifier.size(24.dp, 30.dp)) {
-        val w = size.width
-        val h = size.height
-        val glass = Path().apply {
-            moveTo(w * 0.08f, 0f); lineTo(w * 0.92f, 0f)
-            lineTo(w * 0.78f, h); lineTo(w * 0.22f, h); close()
+fun WaterProgress(drankMl: Int, goalMl: Int, size: Dp, modifier: Modifier = Modifier) {
+    val target = if (goalMl <= 0) 0f else (drankMl.toFloat() / goalMl).coerceIn(0f, 1f)
+    val level by animateFloatAsState(target, tween(1200), label = "level")
+    val inf = rememberInfiniteTransition(label = "wave")
+    val shift by inf.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(2600, easing = LinearEasing)), label = "shift")
+
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(size)) {
+            val r = this.size.minDimension / 2f
+            val c = Offset(r, r)
+            val circle = Path().apply { addOval(androidx.compose.ui.geometry.Rect(c, r - 6.dp.toPx())) }
+            drawCircle(Color(0xFFEAF3FF), r - 6.dp.toPx(), c)
+            clipPath(circle) {
+                val h = this.size.height
+                val w = this.size.width
+                val baseY = h * (1f - level)
+                val amp = if (level in 0.01f..0.99f) 7.dp.toPx() else 0f
+                for ((k, col) in listOf(0 to Brand.Water.copy(alpha = 0.55f), 1 to Brand.WaterDeep)) {
+                    val p = Path().apply {
+                        moveTo(0f, h)
+                        var x = 0f
+                        lineTo(0f, baseY)
+                        while (x <= w) {
+                            val y = baseY + sin(x / w * 2f * PI.toFloat() * 1.3f + shift + k * 1.7f) * amp
+                            lineTo(x, y + k * 4.dp.toPx())
+                            x += 6f
+                        }
+                        lineTo(w, h); close()
+                    }
+                    drawPath(p, col)
+                }
+            }
+            drawCircle(Brand.Primary, r - 3.dp.toPx(), c, style = Stroke(5.dp.toPx()))
         }
-        drawPath(glass, Color(0xFFE3F6FD))
-        clipPath(glass) {
-            drawRect(
-                Color(0xFF4FC3F7),
-                topLeft = androidx.compose.ui.geometry.Offset(0f, h * (1f - level)),
-                size = androidx.compose.ui.geometry.Size(w, h * level)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            val onWater = level > 0.55f
+            Text(
+                "${(target * 100).toInt()}%",
+                fontSize = (size.value / 5.2f).sp, fontWeight = FontWeight.ExtraBold,
+                color = if (onWater) Color.White else Brand.Ink
+            )
+            Text(
+                "$drankMl / $goalMl ml",
+                fontSize = (size.value / 13f).sp, fontWeight = FontWeight.SemiBold,
+                color = if (onWater) Color.White else Brand.Muted
             )
         }
-        drawPath(glass, Color(0xFF0288D1), style = Stroke(2.dp.toPx()))
     }
 }
 
+/** கீழே வரும் "Developed by teqtoe.com" */
 @Composable
-fun GlassRow(drank: Int, goal: Int, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (i in 0 until goal) GlassIcon(filled = i < drank)
-    }
+fun TeqtoeFooter(modifier: Modifier = Modifier, light: Boolean = false) {
+    val ctx = LocalContext.current
+    Text(
+        buildAnnotatedString {
+            append("Developed by ")
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = if (light) Color.White else Brand.Primary)) {
+                append(Brand.WEBSITE)
+            }
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable {
+                try {
+                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Brand.WEBSITE_URL)))
+                } catch (_: Exception) {
+                }
+            }
+            .padding(vertical = 12.dp),
+        textAlign = TextAlign.Center,
+        fontSize = 13.sp,
+        color = if (light) Color.White.copy(alpha = 0.85f) else Brand.Muted
+    )
 }

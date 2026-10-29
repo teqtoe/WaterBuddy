@@ -57,7 +57,7 @@ object Notifier {
             .setSmallIcon(R.drawable.ic_stat_drop)
             .setColor(BLUE)
             .setContentTitle("💧 தண்ணி குடிக்கிற நேரம்!")
-            .setContentText("உங்க Water Buddy வெயிட் பண்றார்… ஒரு கிளாஸ் குடிங்க!")
+            .setContentText("${ReminderStore.character.value?.displayName ?: "Buddy"} dance ஆடிக்கிட்டு வெயிட் பண்றாங்க… ஒரு கிளாஸ் குடிங்க! 💃")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -82,13 +82,14 @@ object Notifier {
         ensureChannels(ctx)
         val nmc = NotificationManagerCompat.from(ctx)
         if (!nmc.areNotificationsEnabled()) return
-        val count = ReminderStore.today.value.drank
+        val ml = ReminderStore.today.value.ml
+        val goal = ReminderStore.goalMl.value
         val n = NotificationCompat.Builder(ctx, CH_FEEDBACK)
             .setSmallIcon(R.drawable.ic_stat_drop)
             .setColor(BLUE)
             .setContentTitle(if (drank) "😄 சூப்பர்! நீங்க Hydration Hero!" else "😢 ஹ்ம்ம்… சரி பரவால்ல")
             .setContentText(
-                if (drank) "இன்னைக்கு $count / ${ReminderStore.DAILY_GOAL} கிளாஸ் முடிஞ்சது"
+                if (drank) "இன்னைக்கு $ml / $goal ml முடிஞ்சது 💧"
                 else "அடுத்த அலர்ட்ல கண்டிப்பா குடிக்கணும், சரியா?"
             )
             .setTimeoutAfter(6_000L)

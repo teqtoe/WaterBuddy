@@ -24,6 +24,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
             // நாளைக்கு இதே நேரத்துக்கு மறுபடி செட் (1 நிமிஷம் buffer — double alert வராம இருக்க)
             AlarmScheduler.schedule(ctx, r, after = System.currentTimeMillis() + 60_000L)
+            if (ReminderStore.isPaused()) { DebugLog.add(ctx, "⏸ Pause-ல இருக்கு, இந்த அலர்ட் skip"); return }
             Notifier.showReminder(ctx)
         } catch (e: Exception) {
             DebugLog.add(ctx, "AlarmReceiver பிழை: ${e.javaClass.simpleName}: ${e.message}")

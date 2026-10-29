@@ -30,14 +30,15 @@ data class Reminder(val id: Int, val hour: Int, val minute: Int, val enabled: Bo
     }
 }
 
-data class DayStats(val drank: Int = 0, val skipped: Int = 0)
+data class DayStats(val drank: Int = 0, val skipped: Int = 0, val ml: Int = 0)
 
 /**
  * எல்லா data-வும் SharedPreferences-ல சேமிக்கப்படுது.
  * StateFlow மூலமா UI உடனே update ஆகும்.
  */
 object ReminderStore {
-    const val DAILY_GOAL = 8
+    val GLASS_OPTIONS = listOf(150, 200, 250, 300, 500)
+    val GOAL_OPTIONS = listOf(1500, 2000, 2500, 3000, 3500)
 
     private const val PREFS = "water_buddy"
     private const val K_REMINDERS = "reminders"
@@ -48,6 +49,11 @@ object ReminderStore {
     private const val K_DATE = "stats_date"
     private const val K_DRANK = "drank"
     private const val K_SKIPPED = "skipped"
+    private const val K_ML = "ml"
+    private const val K_CHAR = "character"
+    private const val K_GLASS = "glass_ml"
+    private const val K_GOAL = "goal_ml"
+    private const val K_PAUSE = "pause_until"
 
     private val _reminders = MutableStateFlow<List<Reminder>>(emptyList())
     val reminders: StateFlow<List<Reminder>> = _reminders.asStateFlow()
@@ -57,6 +63,20 @@ object ReminderStore {
 
     private val _voiceOn = MutableStateFlow(true)
     val voiceOn: StateFlow<Boolean> = _voiceOn.asStateFlow()
+
+    /** தேர்ந்தெடுத்த கேரக்டர் — null = இன்னும் தேர்வு பண்ணல (onboarding காட்டு) */
+    private val _character = MutableStateFlow<BuddyCharacter?>(null)
+    val character: StateFlow<BuddyCharacter?> = _character.asStateFlow()
+
+    private val _glassMl = MutableStateFlow(250)
+    val glassMl: StateFlow<Int> = _glassMl.asStateFlow()
+
+    private val _goalMl = MutableStateFlow(2500)
+    val goalMl: StateFlow<Int> = _goalMl.asStateFlow()
+
+    /** இந்த நேரம் வரை அலர்ட் pause (0 = pause இல்லை) */
+    private val _pauseUntil = MutableStateFlow(0L)
+    val pauseUntil: StateFlow<Long> = _pauseUntil.asStateFlow()
 
     private val _today = MutableStateFlow(DayStats())
     val today: StateFlow<DayStats> = _today.asStateFlow()
@@ -74,6 +94,10 @@ object ReminderStore {
             _reminders.value = parse(p.getString(K_REMINDERS, "[]") ?: "[]")
             _masterOn.value = p.getBoolean(K_MASTER, true)
             _voiceOn.value = p.getBoolean(K_VOICE, true)
+            _character.value = BuddyCharacter.fromKey(p.getString(K_CHAR, null))
+            _glassMl.value = p.getInt(K_GLASS, 250)
+            _goalMl.value = p.getInt(K_GOAL, 2500)
+            _pauseUntil.value = p.getLong(K_PAUSE, 0L)
             loaded = true
         }
         refreshDay(ctx)
@@ -121,9 +145,53 @@ object ReminderStore {
         prefs(ctx).edit().putBoolean(K_VOICE, on).apply()
     }
 
+    fun setCharacter(ctx: Context, c: BuddyCharacter) {
+        _character.value = c
+        prefs(ctx).edit().putString(K_CHAR, c.key).apply()
+    }
+
+    fun setGlass(ctx: Context, ml: Int) {
+        _glassMl.value = ml
+        prefs(ctx).edit().putInt(K_GLASS, ml).apply()
+    }
+
+    fun setGoal(ctx: Context, ml: Int) {
+        _goalMl.value = ml
+        prefs(ctx).edit().putInt(K_GOAL, ml).apply()
+    }
+
+    fun pauseFor(ctx: Context, millis: Long) = setPauseUntil(ctx, System.currentTimeMillis() + millis)
+
+    /** நாளை காலை 6 மணி வரை */
+    fun pauseUntilTomorrow(ctx: Context) {
+        val c = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 6); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
+        }
+        setPauseUntil(ctx, c.timeInMillis)
+    }
+
+    fun resume(ctx: Context) = setPauseUntil(ctx, 0L)
+
+    fun isPaused(): Boolean = _pauseUntil.value > System.currentTimeMillis()
+
+    private fun setPauseUntil(ctx: Context, t: Long) {
+        _pauseUntil.value = t
+        prefs(ctx).edit().putLong(K_PAUSE, t).apply()
+    }
+
     fun recordDrink(ctx: Context) {
         refreshDay(ctx)
-        saveStats(ctx, _today.value.copy(drank = _today.value.drank + 1))
+        val s = _today.value
+        saveStats(ctx, s.copy(drank = s.drank + 1, ml = s.ml + _glassMl.value))
+    }
+
+    /** தவறா அழுத்தினா ஒரு கிளாஸ் குறைக்க */
+    fun undoDrink(ctx: Context) {
+        refreshDay(ctx)
+        val s = _today.value
+        if (s.drank <= 0) return
+        saveStats(ctx, s.copy(drank = s.drank - 1, ml = (s.ml - _glassMl.value).coerceAtLeast(0)))
     }
 
     fun recordSkip(ctx: Context) {
@@ -138,7 +206,7 @@ object ReminderStore {
         if (p.getString(K_DATE, null) != key) {
             saveStats(ctx, DayStats())
         } else {
-            _today.value = DayStats(p.getInt(K_DRANK, 0), p.getInt(K_SKIPPED, 0))
+            _today.value = DayStats(p.getInt(K_DRANK, 0), p.getInt(K_SKIPPED, 0), p.getInt(K_ML, 0))
         }
     }
 
@@ -156,6 +224,7 @@ object ReminderStore {
             .putString(K_DATE, todayKey())
             .putInt(K_DRANK, s.drank)
             .putInt(K_SKIPPED, s.skipped)
+            .putInt(K_ML, s.ml)
             .apply()
     }
 
