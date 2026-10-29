@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ReminderStore.init(this)
+        DebugLog.load(this)
         ReminderStore.seedDefaultsIfFirstRun(this)
         Notifier.ensureChannels(this)
         enableEdgeToEdge()
@@ -57,12 +59,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ReminderStore.refreshDay(this)
-        AlarmScheduler.rescheduleAll(this)   // permission மாறியிருந்தாலும் சரியா செட் ஆகும்
+        AlarmScheduler.rescheduleAll(this, "app திறந்தது")   // permission மாறியிருந்தாலும் சரியா செட் ஆகும்
         resumeTick++
     }
 }
 
-private data class PermState(val notif: Boolean, val exact: Boolean, val fullScreen: Boolean)
+private data class PermState(val notif: Boolean, val exact: Boolean, val fullScreen: Boolean, val battery: Boolean)
 
 private fun checkPerms(ctx: Context): PermState {
     val notif = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
@@ -70,7 +72,8 @@ private fun checkPerms(ctx: Context): PermState {
         ctx.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
     val full = Build.VERSION.SDK_INT < 34 ||
         ctx.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
-    return PermState(notif, exact, full)
+    val battery = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+    return PermState(notif, exact, full, battery)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -209,6 +212,18 @@ fun HomeScreen(resumeTick: Int) {
                 }
             }
 
+            if (!perms.battery) item {
+                PermCard("Battery கட்டுப்பாடு", "Phone தூங்கும்போது அலர்ட் தடுக்கப்படாம இருக்க \"Allow\" பண்ணுங்க.") {
+                    try {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
+                        )
+                    } catch (_: Exception) {
+                        ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    }
+                }
+            }
+
             // ── அலர்ட் லிஸ்ட்
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -252,14 +267,6 @@ fun HomeScreen(resumeTick: Int) {
                             Switch(checked = voiceOn, onCheckedChange = { ReminderStore.setVoice(ctx, it) })
                         }
                         Spacer(Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = {
-                                AlarmScheduler.scheduleTest(ctx, 10)
-                                Toast.makeText(ctx, "10 வினாடியில் அலர்ட் வரும் — phone-ஐ lock பண்ணுங்க! 🔒", Toast.LENGTH_LONG).show()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("🧪 டெஸ்ட் அலர்ட் (10 வினாடி)") }
-                        Spacer(Modifier.height(12.dp))
                         Text(
                             "🔋 பேட்டரி: background-ல எதுவும் ஓடாது. அலர்ட் நேரத்துல மட்டும் app ஒரு நொடி எழுந்து, மறுபடி தூங்கிடும்.",
                             fontSize = 13.sp, color = Color(0xFF4A6572)
@@ -267,6 +274,7 @@ fun HomeScreen(resumeTick: Int) {
                     }
                 }
             }
+            item { DiagnosticsCard(perms) }
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
@@ -341,6 +349,54 @@ private fun AddReminderDialog(onDismiss: () -> Unit, onAdd: (Int, Int) -> Unit) 
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = { onAdd(state.hour, state.minute) }) { Text("சேர்") }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsCard(perms: PermState) {
+    val ctx = LocalContext.current
+    val log by DebugLog.lines.collectAsState()
+    fun yn(b: Boolean) = if (b) "✅" else "❌"
+    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFECEFF1))) {
+        Column(Modifier.padding(16.dp)) {
+            Text("🧪 டெஸ்ட் & Diagnostics", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(
+                "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
+                    "Notif ${yn(perms.notif)}  Exact ${yn(perms.exact)}  FullScreen ${yn(perms.fullScreen)}  Battery ${yn(perms.battery)}",
+                fontSize = 12.sp, color = Color(0xFF455A64)
+            )
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { DebugLog.add(ctx, "▶ 'இப்போவே காட்டு' அழுத்தியாச்சு"); Notifier.showReminder(ctx) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("1️⃣ Notification இப்போவே காட்டு") }
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(
+                onClick = {
+                    AlarmScheduler.scheduleTest(ctx, 10)
+                    Toast.makeText(ctx, "10 வினாடியில் அலர்ட் — phone-ஐ lock பண்ணுங்க! 🔒", Toast.LENGTH_LONG).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("2️⃣ Lock டெஸ்ட் (10 வினாடி)") }
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(
+                onClick = {
+                    ctx.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("⚙️ App settings (Autostart / Battery)") }
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Log (புதுசு மேல)", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { DebugLog.clear(ctx) }) { Text("அழி") }
+            }
+            if (log.isEmpty()) Text("இன்னும் எதுவும் இல்லை", fontSize = 12.sp, color = Color.Gray)
+            log.takeLast(15).reversed().forEach {
+                Text(it, fontSize = 11.sp, color = Color(0xFF263238), lineHeight = 14.sp)
             }
         }
     }

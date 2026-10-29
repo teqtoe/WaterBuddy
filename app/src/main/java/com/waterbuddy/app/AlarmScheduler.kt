@@ -6,12 +6,17 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
- * பேட்டரி சேமிப்பு ரகசியம்: background service எதுவும் ஓடாது.
+ * பேட்டரி சேமிப்பு: background service எதுவும் ஓடாது.
  * Android-ஓட AlarmManager-கிட்ட "இந்த நேரத்துல எழுப்பு"ன்னு சொல்லிட்டு app தூங்கிடும்.
- * அலர்ட் நேரத்துல மட்டும் ஒரு நொடி எழுந்து notification காட்டி, அடுத்த நாளுக்கு செட் பண்ணிடும்.
+ *
+ * setAlarmClock() பயன்படுத்துறோம் — இது Android-லயே மிக நம்பகமான அலாரம்.
+ * Doze mode, Xiaomi/Vivo/Oppo battery saver எல்லாத்தையும் தாண்டி சரியான நேரத்துக்கு வரும்.
  */
 object AlarmScheduler {
     const val ACTION_ALARM = "com.waterbuddy.app.ALARM"
@@ -38,16 +43,23 @@ object AlarmScheduler {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am(ctx).canScheduleExactAlarms()
 
     /** எல்லா அலர்ட்ஸையும் cancel பண்ணி, ON-ல இருக்குறத மட்டும் மறுபடி செட் பண்ணும். */
-    fun rescheduleAll(ctx: Context) {
+    fun rescheduleAll(ctx: Context, reason: String? = null) {
         ReminderStore.init(ctx)
         val list = ReminderStore.reminders.value
         list.forEach { cancel(ctx, it.id) }
-        if (!ReminderStore.masterOn.value) return
-        list.filter { it.enabled }.forEach { schedule(ctx, it) }
+        if (!ReminderStore.masterOn.value) {
+            if (reason != null) DebugLog.add(ctx, "[$reason] Master OFF — அலர்ட் எதுவும் செட் இல்லை")
+            return
+        }
+        val active = list.filter { it.enabled }
+        active.forEach { schedule(ctx, it, log = false) }
+        if (reason != null) DebugLog.add(ctx, "[$reason] ${active.size} அலர்ட் செட் ஆச்சு")
     }
 
-    fun schedule(ctx: Context, r: Reminder, after: Long = System.currentTimeMillis()) {
-        setAt(ctx, nextTrigger(r.hour, r.minute, after), pendingIntent(ctx, r.id))
+    fun schedule(ctx: Context, r: Reminder, after: Long = System.currentTimeMillis(), log: Boolean = true) {
+        val at = nextTrigger(r.hour, r.minute, after)
+        val mode = setAt(ctx, at, pendingIntent(ctx, r.id))
+        if (log) DebugLog.add(ctx, "அடுத்த அலர்ட் ${fmt(at)} ($mode)")
     }
 
     fun cancel(ctx: Context, id: Int) {
@@ -56,22 +68,30 @@ object AlarmScheduler {
 
     /** "டெஸ்ட்" — சில வினாடிகளில் ஒரு அலர்ட். Phone lock பண்ணி பாக்கலாம். */
     fun scheduleTest(ctx: Context, seconds: Int = 10) {
-        setAt(ctx, System.currentTimeMillis() + seconds * 1000L, pendingIntent(ctx, -1, test = true))
+        val at = System.currentTimeMillis() + seconds * 1000L
+        val mode = setAt(ctx, at, pendingIntent(ctx, -1, test = true))
+        DebugLog.add(ctx, "டெஸ்ட் அலர்ட் ${fmt(at)}-க்கு செட் ($mode)")
     }
 
     @SuppressLint("ScheduleExactAlarm")
-    private fun setAt(ctx: Context, at: Long, pi: PendingIntent) {
+    private fun setAt(ctx: Context, at: Long, pi: PendingIntent): String {
         val am = am(ctx)
-        try {
+        return try {
             if (canExact(ctx)) {
-                // Doze mode-லயும் சரியான நேரத்துக்கு வரும்
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                val show = PendingIntent.getActivity(
+                    ctx, 777, Intent(ctx, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), pi)
+                "alarm-clock"
             } else {
-                // Exact permission இல்லைனா: சில நிமிஷம் தள்ளி வரலாம், ஆனா கண்டிப்பா வரும்
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                "inexact — exact permission இல்லை!"
             }
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
+            DebugLog.add(ctx, "setAlarm பிழை: ${e.javaClass.simpleName}: ${e.message}")
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            "inexact fallback"
         }
     }
 
@@ -86,4 +106,6 @@ object AlarmScheduler {
         if (c.timeInMillis <= after) c.add(Calendar.DAY_OF_YEAR, 1)
         return c.timeInMillis
     }
+
+    private fun fmt(t: Long) = SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date(t))
 }

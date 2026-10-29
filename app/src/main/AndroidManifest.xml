@@ -4,7 +4,13 @@
     <!-- Notification காட்ட (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- சரியான நேரத்துக்கு அலர்ட் (Android 12+) -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+    <!-- Android 13+: reminder app-க்கு exact alarm தானா கிடைக்கும் (user settings-ல தேட வேண்டாம்) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Battery optimization-ல இருந்து விலக்கு கேக்க -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Lock screen-ல முழு திரையா கேரக்டர் வர -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Phone restart ஆனா அலர்ட்ஸ் மறுபடி செட் பண்ண -->

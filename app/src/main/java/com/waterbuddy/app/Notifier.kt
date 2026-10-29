@@ -37,7 +37,15 @@ object Notifier {
     fun showReminder(ctx: Context) {
         ensureChannels(ctx)
         val nmc = NotificationManagerCompat.from(ctx)
-        if (!nmc.areNotificationsEnabled()) return
+        if (!nmc.areNotificationsEnabled()) {
+            DebugLog.add(ctx, "❌ Notifications OFF — காட்ட முடியல")
+            return
+        }
+        val ch = ctx.getSystemService(NotificationManager::class.java).getNotificationChannel(CH_ALERT)
+        if (ch != null && ch.importance == NotificationManager.IMPORTANCE_NONE) {
+            DebugLog.add(ctx, "❌ 'தண்ணீர் அலர்ட்' channel OFF-ல இருக்கு")
+            return
+        }
 
         val screenIntent = Intent(ctx, ReminderActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -63,7 +71,9 @@ object Notifier {
 
         try {
             nmc.notify(ID_REMINDER, n)
-        } catch (_: SecurityException) {
+            DebugLog.add(ctx, "✅ Notification அனுப்பியாச்சு (channel importance=${ch?.importance})")
+        } catch (e: Exception) {
+            DebugLog.add(ctx, "❌ Notification பிழை: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
