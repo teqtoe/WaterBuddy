@@ -3,6 +3,9 @@ package com.waterbuddy.app
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.app.KeyguardManager
+import android.os.PowerManager
+import android.provider.Settings
 
 /** அலர்ட் நேரம் வந்ததும் Android இதை எழுப்பும். */
 class AlarmReceiver : BroadcastReceiver() {
@@ -14,7 +17,7 @@ class AlarmReceiver : BroadcastReceiver() {
             DebugLog.add(ctx, "⏰ Android எழுப்புச்சு (${if (test) "டெஸ்ட்" else "id=$id"})")
 
             if (test) {
-                Notifier.showReminder(ctx)
+                fire(ctx)
                 return
             }
 
@@ -25,11 +28,30 @@ class AlarmReceiver : BroadcastReceiver() {
             // நாளைக்கு இதே நேரத்துக்கு மறுபடி செட் (1 நிமிஷம் buffer — double alert வராம இருக்க)
             AlarmScheduler.schedule(ctx, r, after = System.currentTimeMillis() + 60_000L)
             if (ReminderStore.isPaused()) { DebugLog.add(ctx, "⏸ Pause-ல இருக்கு, இந்த அலர்ட் skip"); return }
-            Notifier.showReminder(ctx)
+            fire(ctx)
         } catch (e: Exception) {
             DebugLog.add(ctx, "AlarmReceiver பிழை: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
+}
+
+/**
+ * Phone பயன்பாட்டுல இருந்தா → எந்த app மேலயும் overlay-ல ஓடி வருவாங்க.
+ * Lock / screen off-ல இருந்தா → full-screen notification → transparent ReminderActivity.
+ */
+fun fire(ctx: Context) {
+    val pm = ctx.getSystemService(PowerManager::class.java)
+    val km = ctx.getSystemService(KeyguardManager::class.java)
+    val inUse = pm.isInteractive && !km.isKeyguardLocked
+    if (inUse && Settings.canDrawOverlays(ctx)) {
+        try {
+            OverlayService.start(ctx)
+            return
+        } catch (e: Exception) {
+            DebugLog.add(ctx, "Overlay start ஆகல (${e.javaClass.simpleName}) — notification காட்டுறேன்")
+        }
+    }
+    Notifier.showReminder(ctx)
 }
 
 /** Notification-லயே இருக்குற "குடிச்சேன்" / "இப்போ வேணாம்" பட்டன்கள். */
@@ -37,6 +59,7 @@ class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         try {
             ReminderStore.init(ctx)
+            OverlayService.stop(ctx)
             Notifier.cancelReminder(ctx)
             when (intent.action) {
                 ACTION_DRANK -> {

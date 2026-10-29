@@ -40,7 +40,7 @@ class BeatPlayer {
                 .build()
             t.write(pcm, 0, pcm.size)
             t.setLoopPoints(0, pcm.size, -1)
-            t.setVolume(0.75f)
+            t.setVolume(0.45f)
             t.play()
             track = t
         } catch (_: Exception) {

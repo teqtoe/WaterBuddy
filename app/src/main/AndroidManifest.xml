@@ -16,6 +16,10 @@
     <!-- Phone restart ஆனா அலர்ட்ஸ் மறுபடி செட் பண்ண -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- மற்ற apps மேல கேரக்டர் ஓடி வர -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- Voice (Text-to-Speech) engine-ஐ கண்டுபிடிக்க -->
     <queries>
@@ -49,7 +53,17 @@
             android:launchMode="singleTask"
             android:showWhenLocked="true"
             android:taskAffinity=""
+            android:theme="@style/Theme.WaterBuddy.Transparent"
             android:turnScreenOn="true" />
+
+        <service
+            android:name=".OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows the animated water-reminder character on screen for a few seconds when a reminder fires" />
+        </service>
 
         <receiver
             android:name=".AlarmReceiver"

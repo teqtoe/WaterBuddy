@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -108,15 +109,18 @@ fun ChooseCharacterScreen(initial: BuddyCharacter?, onPick: (BuddyCharacter) -> 
             fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center
         )
         Text(
-            "ஒவ்வொரு அலர்ட்லயும் இவங்க dance ஆடிக்கிட்டே வந்து தண்ணி குடிக்க சொல்லுவாங்க",
+            "ஒவ்வொரு அலர்ட்லயும் இவங்க ஓடி வந்து dance ஆடி தண்ணி குடிக்க சொல்லுவாங்க 👉 swipe பண்ணி 5 பேரையும் பாருங்க",
             color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center, fontSize = 14.sp
         )
         Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             BuddyCharacter.entries.forEach { c ->
                 val isSel = c == selected
                 Card(
-                    modifier = Modifier.weight(1f).clickable { selected = c },
+                    modifier = Modifier.width(158.dp).clickable { selected = c },
                     shape = RoundedCornerShape(24.dp),
                     border = if (isSel) BorderStroke(3.dp, Color.White) else null,
                     colors = CardDefaults.cardColors(
@@ -150,7 +154,7 @@ fun ChooseCharacterScreen(initial: BuddyCharacter?, onPick: (BuddyCharacter) -> 
 
 // ═══════════════════════ Home ═══════════════════════
 
-private data class PermState(val notif: Boolean, val exact: Boolean, val fullScreen: Boolean, val battery: Boolean)
+private data class PermState(val notif: Boolean, val exact: Boolean, val fullScreen: Boolean, val battery: Boolean, val overlay: Boolean)
 
 private fun checkPerms(ctx: Context): PermState {
     val notif = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
@@ -159,7 +163,7 @@ private fun checkPerms(ctx: Context): PermState {
     val full = Build.VERSION.SDK_INT < 34 ||
         ctx.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
     val battery = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
-    return PermState(notif, exact, full, battery)
+    return PermState(notif, exact, full, battery, Settings.canDrawOverlays(ctx))
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -336,6 +340,11 @@ fun HomeScreen(resumeTick: Int, character: BuddyCharacter, onChangeCharacter: ()
             if (!perms.fullScreen && Build.VERSION.SDK_INT >= 34) item {
                 PermCard("Lock screen-ல Buddy வர", "\"Full screen notifications\" ON பண்ணுங்க.") {
                     ctx.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${ctx.packageName}")))
+                }
+            }
+            if (!perms.overlay) item {
+                PermCard("Buddy ஓடி வர அனுமதி", "\"Display over other apps\" ON பண்ணா, phone use பண்ணும்போதும் எந்த app மேலயும் ஓடி வருவாங்க.") {
+                    ctx.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
                 }
             }
             if (!perms.battery) item {
@@ -559,6 +568,13 @@ private fun DiagnosticsCard(perms: PermState, modifier: Modifier = Modifier) {
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text("💃 டெஸ்ட் அலர்ட் (10 வினாடி)") }
+        Button(
+            onClick = {
+                if (Settings.canDrawOverlays(ctx)) OverlayService.start(ctx)
+                else ctx.startActivity(Intent(ctx, ReminderActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("👀 இப்போவே ஓடி வர்றதை பாரு") }
         if (open) {
             Spacer(Modifier.height(8.dp))
             Text(

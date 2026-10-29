@@ -12,7 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 object Notifier {
     private const val CH_ALERT = "water_alerts"
     private const val CH_FEEDBACK = "water_feedback"
-    private const val ID_REMINDER = 1001
+    const val ID_REMINDER = 1001
     private const val ID_FEEDBACK = 1002
     private const val BLUE = 0xFF0288D1.toInt()
 
@@ -34,7 +34,7 @@ object Notifier {
     }
 
     @SuppressLint("MissingPermission")
-    fun showReminder(ctx: Context) {
+    fun showReminder(ctx: Context, fullScreen: Boolean = true) {
         ensureChannels(ctx)
         val nmc = NotificationManagerCompat.from(ctx)
         if (!nmc.areNotificationsEnabled()) {
@@ -47,27 +47,7 @@ object Notifier {
             return
         }
 
-        val screenIntent = Intent(ctx, ReminderActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val fullScreen = PendingIntent.getActivity(
-            ctx, 0, screenIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val n = NotificationCompat.Builder(ctx, CH_ALERT)
-            .setSmallIcon(R.drawable.ic_stat_drop)
-            .setColor(BLUE)
-            .setContentTitle("💧 தண்ணி குடிக்கிற நேரம்!")
-            .setContentText("${ReminderStore.character.value?.displayName ?: "Buddy"} dance ஆடிக்கிட்டு வெயிட் பண்றாங்க… ஒரு கிளாஸ் குடிங்க! 💃")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(fullScreen, true)   // lock-ல இருந்தா முழு திரை கேரக்டர்
-            .setContentIntent(fullScreen)
-            .setAutoCancel(true)
-            .setTimeoutAfter(30 * 60_000L)           // 30 நிமிஷம் கழிச்சு தானா போயிடும்
-            .addAction(0, "குடிச்சேன் 💧", actionIntent(ctx, ActionReceiver.ACTION_DRANK, 1))
-            .addAction(0, "இப்போ வேணாம்", actionIntent(ctx, ActionReceiver.ACTION_SKIP, 2))
-            .build()
+        val n = buildReminder(ctx, fullScreen)
 
         try {
             nmc.notify(ID_REMINDER, n)
@@ -75,6 +55,31 @@ object Notifier {
         } catch (e: Exception) {
             DebugLog.add(ctx, "❌ Notification பிழை: ${e.javaClass.simpleName}: ${e.message}")
         }
+    }
+
+    /** அலர்ட் notification (OverlayService-உம் இதையே பயன்படுத்துது). */
+    fun buildReminder(ctx: Context, fullScreen: Boolean): android.app.Notification {
+        ensureChannels(ctx)
+        val screenIntent = Intent(ctx, ReminderActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val screenPi = PendingIntent.getActivity(
+            ctx, 0, screenIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val b = NotificationCompat.Builder(ctx, CH_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setColor(BLUE)
+            .setContentTitle("💧 தண்ணி குடிக்கிற நேரம்!")
+            .setContentText("${ReminderStore.character.value?.displayName ?: "Buddy"} ஓடி வந்து வெயிட் பண்றாங்க… ஒரு கிளாஸ் குடிங்க! 🏃")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(screenPi)
+            .setAutoCancel(true)
+            .setTimeoutAfter(30 * 60_000L)
+            .addAction(0, "குடிச்சேன் 💧", actionIntent(ctx, ActionReceiver.ACTION_DRANK, 1))
+            .addAction(0, "அப்புறம்", actionIntent(ctx, ActionReceiver.ACTION_SKIP, 2))
+        if (fullScreen) b.setFullScreenIntent(screenPi, true)   // lock-ல இருந்தா கேரக்டர் ஓடி வருவாங்க
+        return b.build()
     }
 
     @SuppressLint("MissingPermission")
