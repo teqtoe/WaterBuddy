@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,40 +31,49 @@ private enum class Stage { RUN_IN, ALERT, REACT, RUN_OUT, DONE }
 
 /**
  * அலர்ட் நிகழ்ச்சி (background இல்லை — transparent):
- * 1) இடது பக்கத்துல இருந்து ஓடி வருவாங்க → 2) நடுவுல நின்னு dance + கேள்வி
- * → 3) பதிலுக்கு ஏத்த மாதிரி சந்தோஷம் / சோகம் → 4) வலது பக்கம் ஓடிப் போயிடுவாங்க.
+ * 1) பக்கவாட்டா திரும்பி இடது பக்கத்துல இருந்து ஓடி வருவாங்க
+ * 2) நடுவுல நின்னு உங்களை பாத்து dance ஆடி, தண்ணி குடிக்க சொல்லுவாங்க
+ * 3) "குடிக்கிறேன்" → தலையாட்டி சந்தோஷம் / "அப்புறம்" → சோகமா தலை குனிஞ்சு
+ * 4) வலது பக்கம் ஓடிப் போயிடுவாங்க
  */
 @Composable
 fun BuddyShow(
-    character: BuddyCharacter,
     onArrived: () -> Unit,
     onAnswer: (Boolean) -> Unit,
     onTimeout: () -> Unit,
     onFinished: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    speech: String? = null
 ) {
+    val ctx = LocalContext.current
+    val model by ReminderStore.model.collectAsState()
+    val faceOn by ReminderStore.faceOn.collectAsState()
+    val faceVersion by ReminderStore.faceVersion.collectAsState()
+    val face = remember(faceOn, faceVersion) { if (faceOn) FaceMaker.load(ctx) else null }
+
     var stage by remember { mutableStateOf(Stage.RUN_IN) }
     var answer by remember { mutableStateOf<Boolean?>(null) }
-    val x = remember { Animatable(-1.1f) }   // அகலத்தோட பங்கு: -1 = இடது வெளியே, 0 = நடு, 1 = வலது வெளியே
+    val x = remember { Animatable(-1.1f) }
 
     LaunchedEffect(stage) {
         when (stage) {
             Stage.RUN_IN -> {
-                x.animateTo(0f, tween(2000, easing = LinearOutSlowInEasing))
+                x.animateTo(0f, tween(2300, easing = LinearOutSlowInEasing))
                 stage = Stage.ALERT
                 onArrived()
             }
             Stage.ALERT -> {
-                delay(45_000)               // பதில் இல்லைனா கிளம்பிடுவாங்க
+                delay(45_000)
                 onTimeout()
                 stage = Stage.RUN_OUT
             }
             Stage.REACT -> {
-                delay(3_000)
+                delay(3_200)
                 stage = Stage.RUN_OUT
             }
             Stage.RUN_OUT -> {
-                x.animateTo(1.15f, tween(1700, easing = FastOutLinearInEasing))
+                delay(350)   // திரும்புறதுக்கு நேரம்
+                x.animateTo(1.15f, tween(1900, easing = FastOutLinearInEasing))
                 stage = Stage.DONE
                 onFinished()
             }
@@ -71,7 +81,17 @@ fun BuddyShow(
         }
     }
 
-    val mood = when (stage) {
+    val action = when (stage) {
+        Stage.RUN_IN, Stage.RUN_OUT -> Action3D.RUN
+        Stage.ALERT -> Action3D.DANCE
+        Stage.REACT -> if (answer == true) Action3D.YES else Action3D.SAD
+        Stage.DONE -> Action3D.IDLE
+    }
+    val yaw = when (stage) {
+        Stage.RUN_IN, Stage.RUN_OUT -> 90f   // வலது பக்கம் பாத்து ஓடுறாங்க
+        else -> 0f                           // உங்களை பாக்குறாங்க
+    }
+    val fallbackMood = when (stage) {
         Stage.RUN_IN, Stage.RUN_OUT -> Mood.RUNNING
         Stage.ALERT -> Mood.DANCING
         Stage.REACT -> if (answer == true) Mood.HAPPY else Mood.SAD
@@ -84,6 +104,7 @@ fun BuddyShow(
             else -> Lines.askBubbles.random()
         }
     }
+    val shown = if (stage == Stage.ALERT && !speech.isNullOrBlank()) "🗣 $speech" else bubble
 
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         AnimatedVisibility(
@@ -91,18 +112,20 @@ fun BuddyShow(
             enter = scaleIn() + fadeIn(),
             exit = fadeOut()
         ) {
-            SpeechBubble(bubble, Modifier.padding(horizontal = 24.dp))
+            SpeechBubble(shown, Modifier.padding(horizontal = 24.dp))
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().height(250.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(300.dp)) {
             val widthPx = constraints.maxWidth.toFloat()
-            WaterBuddy(
-                mood = mood,
-                character = character,
-                glassFill = if (stage == Stage.REACT && answer == true) 0.15f else 0.8f,
+            Buddy3D(
+                model = model,
+                action = action,
+                yaw = yaw,
+                face = face,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .height(250.dp)
-                    .graphicsLayer { translationX = x.value * widthPx }
+                    .size(width = 260.dp, height = 300.dp)
+                    .graphicsLayer { translationX = x.value * widthPx },
+                fallback = { WaterBuddy(fallbackMood, BuddyCharacter.KUTTY, Modifier.height(260.dp)) }
             )
         }
         AnimatedVisibility(

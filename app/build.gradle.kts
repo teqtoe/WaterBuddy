@@ -12,8 +12,12 @@ android {
         applicationId = "com.waterbuddy.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "3.0"
+        versionCode = 5
+        versionName = "4.0"
+        ndk {
+            // phone-களுக்கு மட்டும் (APK size குறைய)
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     // ஒரே key — புது APK பழசு மேலயே install ஆகும்
@@ -58,4 +62,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.savedstate:savedstate-ktx:1.2.1")
+    // 3D: Google Filament
+    implementation("com.google.android.filament:filament-android:1.66.0")
+    implementation("com.google.android.filament:gltfio-android:1.66.0")
+    // Photo-ல முகம் கண்டுபிடிக்க (phone-லயே)
+    implementation("com.google.mlkit:face-detection:16.1.7")
 }

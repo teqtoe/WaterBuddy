@@ -63,16 +63,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             WaterBuddyTheme {
-                val character by ReminderStore.character.collectAsState()
-                var choosing by remember { mutableStateOf(false) }
-                val current = character
-                if (current == null || choosing) {
-                    ChooseCharacterScreen(
-                        initial = current,
-                        onPick = { ReminderStore.setCharacter(this, it); choosing = false }
-                    )
-                } else {
-                    HomeScreen(resumeTick, current, onChangeCharacter = { choosing = true })
+                val onboarded by ReminderStore.onboarded.collectAsState()
+                var section by remember { mutableStateOf<Section?>(null) }
+                when {
+                    !onboarded -> SetupFlow(onDone = { ReminderStore.setOnboarded(this) })
+                    section != null -> SettingsPage(section!!, onClose = { section = null })
+                    else -> HomeScreen(resumeTick, onOpenSection = { section = it })
                 }
             }
         }
@@ -83,72 +79,6 @@ class MainActivity : ComponentActivity() {
         ReminderStore.refreshDay(this)
         AlarmScheduler.rescheduleAll(this, "app திறந்தது")
         resumeTick++
-    }
-}
-
-// ═══════════════════════ கேரக்டர் தேர்வு (முதல் முறை) ═══════════════════════
-
-@Composable
-fun ChooseCharacterScreen(initial: BuddyCharacter?, onPick: (BuddyCharacter) -> Unit) {
-    var selected by remember { mutableStateOf(initial ?: BuddyCharacter.KUTTY) }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Brand.HeaderGradient)
-            .systemBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(12.dp))
-        Text("💧 Water Buddy", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Text("by ${Brand.COMPANY}", color = Color.White.copy(alpha = 0.85f))
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "உங்க Dance Buddy-ஐ தேர்ந்தெடுங்க!",
-            fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center
-        )
-        Text(
-            "ஒவ்வொரு அலர்ட்லயும் இவங்க ஓடி வந்து dance ஆடி தண்ணி குடிக்க சொல்லுவாங்க 👉 swipe பண்ணி 5 பேரையும் பாருங்க",
-            color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center, fontSize = 14.sp
-        )
-        Spacer(Modifier.height(20.dp))
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            BuddyCharacter.entries.forEach { c ->
-                val isSel = c == selected
-                Card(
-                    modifier = Modifier.width(158.dp).clickable { selected = c },
-                    shape = RoundedCornerShape(24.dp),
-                    border = if (isSel) BorderStroke(3.dp, Color.White) else null,
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSel) Color.White else Color.White.copy(alpha = 0.18f)
-                    )
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        WaterBuddy(
-                            mood = if (isSel) Mood.DANCING else Mood.IDLE,
-                            character = c,
-                            modifier = Modifier.height(210.dp)
-                        )
-                        Text(c.displayName, fontSize = 22.sp, fontWeight = FontWeight.Bold,
-                            color = if (isSel) Brand.Ink else Color.White)
-                        Text(c.tagline, fontSize = 13.sp, color = if (isSel) Brand.Muted else Color.White.copy(alpha = 0.8f))
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = { onPick(selected) },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Brand.Primary)
-        ) { Text("${selected.displayName} கூட ஆரம்பிக்கலாம் →", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.height(8.dp))
-        TeqtoeFooter(light = true)
     }
 }
 
@@ -168,7 +98,7 @@ private fun checkPerms(ctx: Context): PermState {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(resumeTick: Int, character: BuddyCharacter, onChangeCharacter: () -> Unit) {
+fun HomeScreen(resumeTick: Int, onOpenSection: (Section) -> Unit) {
     val ctx = LocalContext.current
     val reminders by ReminderStore.reminders.collectAsState()
     val masterOn by ReminderStore.masterOn.collectAsState()
@@ -177,6 +107,10 @@ fun HomeScreen(resumeTick: Int, character: BuddyCharacter, onChangeCharacter: ()
     val glassMl by ReminderStore.glassMl.collectAsState()
     val goalMl by ReminderStore.goalMl.collectAsState()
     val pauseUntil by ReminderStore.pauseUntil.collectAsState()
+    val model by ReminderStore.model.collectAsState()
+    val faceOn by ReminderStore.faceOn.collectAsState()
+    val faceVersion by ReminderStore.faceVersion.collectAsState()
+    val face = remember(faceOn, faceVersion) { if (faceOn) FaceMaker.load(ctx) else null }
     val perms = remember(resumeTick) { checkPerms(ctx) }
     val paused = remember(pauseUntil, resumeTick) { pauseUntil > System.currentTimeMillis() }
     var showPicker by remember { mutableStateOf(false) }
@@ -199,7 +133,7 @@ fun HomeScreen(resumeTick: Int, character: BuddyCharacter, onChangeCharacter: ()
     }
     val next = ReminderStore.nextUpcoming()
     val bubble = when {
-        poked -> "யேய்! 🕺 நீங்க குடிச்சா நான் ஆடுவேன்!"
+        poked -> "யேய்! 💃 நீங்க குடிச்சா நான் ஆடுவேன்!"
         !masterOn -> "அலர்ட் OFF… நான் தூங்குறேன் 😴"
         paused -> "Pause-ல இருக்கேன் ⏸ கொஞ்சம் ரெஸ்ட்!"
         goalDone -> "இன்னைக்கு goal முடிஞ்சது! 🎉"
@@ -259,15 +193,22 @@ fun HomeScreen(resumeTick: Int, character: BuddyCharacter, onChangeCharacter: ()
                     SpeechBubble(bubble, Modifier.fillMaxWidth())
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         WaterProgress(drankMl = stats.ml, goalMl = goalMl, size = 150.dp, modifier = Modifier.weight(1f))
-                        WaterBuddy(
-                            mood = mood,
-                            character = character,
+                        Buddy3D(
+                            model = model,
+                            action = when (mood) {
+                                Mood.DANCING -> Action3D.DANCE
+                                Mood.HAPPY -> Action3D.YES
+                                Mood.SLEEPY -> Action3D.SAD
+                                else -> Action3D.IDLE
+                            },
+                            face = face,
                             modifier = Modifier
-                                .height(200.dp)
+                                .size(150.dp, 210.dp)
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
-                                ) { poked = true }
+                                ) { poked = true },
+                            fallback = { WaterBuddy(mood, BuddyCharacter.KUTTY, Modifier.height(200.dp)) }
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -400,14 +341,32 @@ fun HomeScreen(resumeTick: Int, character: BuddyCharacter, onChangeCharacter: ()
                     Text("⚙️ Settings", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Brand.Ink)
                     Spacer(Modifier.height(12.dp))
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Dance Buddy", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
-                            Text("${character.displayName} · ${character.tagline}", fontSize = 13.sp, color = Brand.Muted)
+                    Section.entries.forEach { sec ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onOpenSection(sec) }
+                                .background(Color(0xFFF1F5FD))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(sec.title, fontWeight = FontWeight.SemiBold, color = Brand.Ink)
+                                Text(
+                                    when (sec) {
+                                        Section.BUDDY -> "${model.displayName}${if (faceOn) " · உங்க முகத்தோட 📸" else ""}"
+                                        Section.LINES -> "${ReminderStore.presets.value.size + ReminderStore.custom.value.size} வரிகள் தேர்வு"
+                                        Section.VOICE -> ReminderStore.voiceStyle.value.label
+                                    },
+                                    fontSize = 13.sp, color = Brand.Muted
+                                )
+                            }
+                            Text("›", fontSize = 24.sp, color = Brand.Muted)
                         }
-                        OutlinedButton(onClick = onChangeCharacter) { Text("மாத்து") }
+                        Spacer(Modifier.height(8.dp))
                     }
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(6.dp))
 
                     Text("🥛 ஒரு கிளாஸ் அளவு", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

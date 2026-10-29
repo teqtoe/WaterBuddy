@@ -54,6 +54,13 @@ object ReminderStore {
     private const val K_GLASS = "glass_ml"
     private const val K_GOAL = "goal_ml"
     private const val K_PAUSE = "pause_until"
+    private const val K_MODEL = "model3d"
+    private const val K_FACE_ON = "face_on"
+    private const val K_PRESETS = "preset_lines"
+    private const val K_CUSTOM = "custom_lines"
+    private const val K_VSTYLE = "voice_style"
+    private const val K_VNAME = "voice_name"
+    private const val K_ONBOARDED = "onboarded"
 
     private val _reminders = MutableStateFlow<List<Reminder>>(emptyList())
     val reminders: StateFlow<List<Reminder>> = _reminders.asStateFlow()
@@ -78,6 +85,30 @@ object ReminderStore {
     private val _pauseUntil = MutableStateFlow(0L)
     val pauseUntil: StateFlow<Long> = _pauseUntil.asStateFlow()
 
+    // ── 3D கேரக்டர் & முகம்
+    private val _model = MutableStateFlow(Model3D.MEERA)
+    val model: StateFlow<Model3D> = _model.asStateFlow()
+    private val _faceOn = MutableStateFlow(false)
+    val faceOn: StateFlow<Boolean> = _faceOn.asStateFlow()
+    /** முகம் மாறும்போதெல்லாம் +1 (படத்தை மறுபடி load பண்ண) */
+    private val _faceVersion = MutableStateFlow(0)
+    val faceVersion: StateFlow<Int> = _faceVersion.asStateFlow()
+
+    // ── பேச்சு வரிகள்
+    private val _presets = MutableStateFlow(setOf(0, 1, 2, 3, 4))
+    val presets: StateFlow<Set<Int>> = _presets.asStateFlow()
+    private val _custom = MutableStateFlow<List<String>>(emptyList())
+    val custom: StateFlow<List<String>> = _custom.asStateFlow()
+
+    // ── குரல்
+    private val _voiceStyle = MutableStateFlow(VoiceStyle.NATURAL)
+    val voiceStyle: StateFlow<VoiceStyle> = _voiceStyle.asStateFlow()
+    private val _voiceName = MutableStateFlow<String?>(null)
+    val voiceName: StateFlow<String?> = _voiceName.asStateFlow()
+
+    private val _onboarded = MutableStateFlow(false)
+    val onboarded: StateFlow<Boolean> = _onboarded.asStateFlow()
+
     private val _today = MutableStateFlow(DayStats())
     val today: StateFlow<DayStats> = _today.asStateFlow()
 
@@ -98,6 +129,16 @@ object ReminderStore {
             _glassMl.value = p.getInt(K_GLASS, 250)
             _goalMl.value = p.getInt(K_GOAL, 2500)
             _pauseUntil.value = p.getLong(K_PAUSE, 0L)
+            _model.value = Model3D.fromKey(p.getString(K_MODEL, null)) ?: Model3D.MEERA
+            _faceOn.value = p.getBoolean(K_FACE_ON, false) && FaceMaker.file(ctx).exists()
+            _presets.value = (p.getString(K_PRESETS, null)?.split(',')?.mapNotNull { it.toIntOrNull() }?.toSet())
+                ?: setOf(0, 1, 2, 3, 4)
+            _custom.value = try {
+                val a = JSONArray(p.getString(K_CUSTOM, "[]")); (0 until a.length()).map { a.getString(it) }
+            } catch (_: Exception) { emptyList() }
+            _voiceStyle.value = VoiceStyle.fromKey(p.getString(K_VSTYLE, null))
+            _voiceName.value = p.getString(K_VNAME, null)
+            _onboarded.value = p.getBoolean(K_ONBOARDED, false)
             loaded = true
         }
         refreshDay(ctx)
@@ -143,6 +184,60 @@ object ReminderStore {
     fun setVoice(ctx: Context, on: Boolean) {
         _voiceOn.value = on
         prefs(ctx).edit().putBoolean(K_VOICE, on).apply()
+    }
+
+    fun setModel(ctx: Context, m: Model3D) {
+        _model.value = m
+        prefs(ctx).edit().putString(K_MODEL, m.key).apply()
+    }
+
+    fun setFaceOn(ctx: Context, on: Boolean) {
+        _faceOn.value = on && FaceMaker.file(ctx).exists()
+        _faceVersion.value = _faceVersion.value + 1
+        prefs(ctx).edit().putBoolean(K_FACE_ON, _faceOn.value).apply()
+    }
+
+    fun togglePreset(ctx: Context, i: Int) {
+        val now = _presets.value
+        val next = if (i in now) now - i else now + i
+        _presets.value = next
+        prefs(ctx).edit().putString(K_PRESETS, next.joinToString(",")).apply()
+    }
+
+    fun addCustom(ctx: Context, line: String) {
+        val t = line.trim()
+        if (t.isEmpty() || t in _custom.value) return
+        saveCustom(ctx, _custom.value + t)
+    }
+
+    fun removeCustom(ctx: Context, line: String) = saveCustom(ctx, _custom.value - line)
+
+    private fun saveCustom(ctx: Context, list: List<String>) {
+        _custom.value = list
+        prefs(ctx).edit().putString(K_CUSTOM, JSONArray(list).toString()).apply()
+    }
+
+    fun setVoiceStyle(ctx: Context, v: VoiceStyle) {
+        _voiceStyle.value = v
+        prefs(ctx).edit().putString(K_VSTYLE, v.key).apply()
+    }
+
+    fun setVoiceName(ctx: Context, name: String?) {
+        _voiceName.value = name
+        prefs(ctx).edit().putString(K_VNAME, name).apply()
+    }
+
+    fun setOnboarded(ctx: Context) {
+        _onboarded.value = true
+        prefs(ctx).edit().putBoolean(K_ONBOARDED, true).apply()
+    }
+
+    /** அலர்ட்ல சொல்லப்போற 5 வரிகள் (தேர்ந்தெடுத்தது + உங்க சொந்த வரிகள், கலந்து) */
+    fun playlist(count: Int = 5): List<Pair<String, String>> {
+        val pool = _presets.value.sorted().mapNotNull { Lines.presets.getOrNull(it) } +
+            _custom.value.map { it to it }
+        val base = pool.ifEmpty { Lines.presets.take(3) }.shuffled()
+        return List(count) { base[it % base.size] }
     }
 
     fun setCharacter(ctx: Context, c: BuddyCharacter) {

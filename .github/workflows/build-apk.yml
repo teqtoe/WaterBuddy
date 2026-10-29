@@ -20,7 +20,9 @@ jobs:
         with:
           gradle-version: 8.11.1
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug 2>&1 | tee build.log
       - uses: actions/upload-artifact@v4
         with:
           name: WaterBuddy-apk
@@ -34,3 +36,16 @@ jobs:
           name: Water Buddy build ${{ github.run_number }}
           make_latest: true
           files: WaterBuddy.apk
+      - name: Report build errors (பிழை இருந்தா release note-ல)
+        if: failure()
+        run: |
+          { grep -E "^e: |error:|What went wrong|Could not|> " build.log | head -80; echo; tail -40 build.log; } > errors.txt || true
+      - name: Publish error report
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fail-${{ github.run_number }}
+          name: Build failed ${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          body_path: errors.txt

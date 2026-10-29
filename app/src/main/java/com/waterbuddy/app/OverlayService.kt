@@ -10,6 +10,11 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.ServiceCompat
@@ -76,20 +81,22 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.BOTTOM }
 
-        val character = ReminderStore.character.value ?: BuddyCharacter.KUTTY
         val v = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@OverlayService)
             setViewTreeSavedStateRegistryOwner(this@OverlayService)
             setContent {
                 WaterBuddyTheme {
+                    var spoken by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(Unit) { speaker?.onSpeak = { spoken = it } }
                     BuddyShow(
-                        character = character,
                         modifier = Modifier.navigationBarsPadding(),
-                        onArrived = { speaker?.sayRepeated(Lines.askSpoken) },
+                        speech = spoken,
+                        onArrived = { speaker?.sayRepeated(ReminderStore.playlist()) },
                         onAnswer = { drank -> answer(drank) },
                         onTimeout = {
                             timedOut = true

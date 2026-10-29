@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -46,15 +49,16 @@ class ReminderActivity : ComponentActivity() {
 
         setContent {
             WaterBuddyTheme {
-                val character by ReminderStore.character.collectAsState()
+                var spoken by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) { speaker?.onSpeak = { spoken = it } }
                 Box(Modifier.fillMaxSize()) {
                     BuddyShow(
-                        character = character ?: BuddyCharacter.KUTTY,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
                             .padding(bottom = 24.dp),
-                        onArrived = { speaker?.sayRepeated(Lines.askSpoken) },
+                        speech = spoken,
+                        onArrived = { speaker?.sayRepeated(ReminderStore.playlist()) },
                         onAnswer = ::answer,
                         onTimeout = { beat?.stop(); speaker?.stop() },
                         onFinished = { finish() }
