@@ -16,7 +16,7 @@ import androidx.core.app.NotificationManagerCompat
  *  - Overlay ஓடும்போது Android கட்டாயமா கேக்குற சின்ன அமைதியான notification
  */
 object Notifier {
-    private const val CH_ALERT = "buddy_alert_silent"
+    private const val CH_ALERT = "buddy_lock_alert"
     private const val CH_RUNNING = "buddy_running"
     const val ID_ALERT = 1001
     const val ID_RUNNING = 1003
@@ -25,7 +25,7 @@ object Notifier {
     fun ensureChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         // பழைய (popup) channel-களை நீக்கு
-        listOf("water_alerts", "water_feedback").forEach { nm.deleteNotificationChannel(it) }
+        listOf("water_alerts", "water_feedback", "buddy_alert_silent").forEach { nm.deleteNotificationChannel(it) }
         nm.createNotificationChannel(
             NotificationChannel(CH_ALERT, "Lock screen Buddy", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Lock screen-ல Buddy-ஐ திறக்க மட்டும் (சத்தம் இல்லை)"
@@ -69,7 +69,7 @@ object Notifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSilent(true)
+            // குறிப்பு: setSilent() போடக்கூடாது — அது full-screen திறக்கிறதை தடுக்கும். Channel-லயே சத்தம் இல்லை.
             .setFullScreenIntent(pi, true)
             .setContentIntent(pi)
             .setAutoCancel(true)

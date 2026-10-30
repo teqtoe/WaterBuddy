@@ -21,10 +21,11 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Lock screen-ல வரும் அலர்ட் — background இல்லாத transparent திரை.
- * Buddy இடது பக்கம் ஓடி வந்து, நடுவுல நின்னு சொல்லிட்டு, வலது பக்கம் போயிடுவார்.
+ * Buddy இடது பக்கம் துள்ளி வந்து, நடுவுல ஆடிக்கிட்டே சொல்லிட்டு, வலது பக்கம் போயிடுவார்.
  */
 class ReminderActivity : ComponentActivity() {
     private var speaker: Speaker? = null
+    private var beat: BeatPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,7 +45,10 @@ class ReminderActivity : ComponentActivity() {
         Notifier.cancelAlert(this)        // மேல notification தெரியக்கூடாது
         OverlayService.stop(this)          // ரெண்டு இடத்துலயும் ஒரே நேரத்துல வர வேண்டாம்
         val r = AlertFlow.resolve(intent.getIntExtra(AlarmScheduler.EXTRA_ID, AlarmScheduler.TEST_WATER))
-        if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) speaker = Speaker(this)
+        if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) {
+            speaker = Speaker(this)
+            beat = BeatPlayer().also { it.start() }
+        }
 
         setContent {
             WaterBuddyTheme {
@@ -60,11 +64,12 @@ class ReminderActivity : ComponentActivity() {
                         speech = spoken,
                         onArrived = { speaker?.sayRepeated(AlertFlow.spokenLines(r)) },
                         onAnswer = { yes ->
+                            beat?.stop()
                             AlertFlow.onAnswer(this@ReminderActivity, r, yes)
                             val (ta, en) = AlertFlow.reactionSpoken(r, yes)
                             speaker?.say(ta, en)
                         },
-                        onTimeout = { speaker?.stop() },
+                        onTimeout = { speaker?.stop(); beat?.stop() },
                         onFinished = { finish() }
                     )
                 }
@@ -77,7 +82,13 @@ class ReminderActivity : ComponentActivity() {
         Notifier.cancelAlert(this)
     }
 
+    override fun onStop() {
+        beat?.stop()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        beat?.stop()
         speaker?.shutdown()
         super.onDestroy()
     }

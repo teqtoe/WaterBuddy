@@ -45,6 +45,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private var view: ComposeView? = null
     private var speaker: Speaker? = null
     private var alert: Reminder? = null
+    private var beat: BeatPlayer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,6 +79,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private fun show(r: Reminder) {
         if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) {
             speaker = Speaker(this)
+            beat = BeatPlayer().also { it.start() }
         }
         val wm = getSystemService(WindowManager::class.java)
         val params = WindowManager.LayoutParams(
@@ -102,7 +104,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                         speech = spoken,
                         onArrived = { speaker?.sayRepeated(AlertFlow.spokenLines(r)) },
                         onAnswer = { yes -> answer(r, yes) },
-                        onTimeout = { speaker?.stop() },
+                        onTimeout = { speaker?.stop(); beat?.stop() },
                         onFinished = { stopSelf() }
                     )
                 }
@@ -114,6 +116,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     }
 
     private fun answer(r: Reminder, yes: Boolean) {
+        beat?.stop()
         AlertFlow.onAnswer(this, r, yes)
         val (ta, en) = AlertFlow.reactionSpoken(r, yes)
         speaker?.say(ta, en)
@@ -124,6 +127,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             try { getSystemService(WindowManager::class.java).removeView(it) } catch (_: Exception) {}
         }
         view = null
+        beat?.stop()
         speaker?.shutdown()
         registry.currentState = Lifecycle.State.DESTROYED
         super.onDestroy()

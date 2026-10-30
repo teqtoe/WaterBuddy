@@ -58,7 +58,20 @@ fun fire(ctx: Context, id: Int) {
             DebugLog.add(ctx, "Overlay start ஆகல (${e.javaClass.simpleName})")
         }
     }
+    // Lock screen: full-screen அனுமதி மூலமா திறக்கும்
     Notifier.showFullScreen(ctx, id)
+    // கூடவே நேரடியாவும் திறக்க முயற்சி ("Display over other apps" அனுமதி இருந்தா Android அனுமதிக்கும்)
+    if (Settings.canDrawOverlays(ctx)) {
+        try {
+            ctx.startActivity(
+                Intent(ctx, ReminderActivity::class.java)
+                    .putExtra(AlarmScheduler.EXTRA_ID, id)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+        } catch (e: Exception) {
+            DebugLog.add(ctx, "நேரடியா திறக்க முடியல: ${e.javaClass.simpleName}")
+        }
+    }
 }
 
 /** Phone restart / நேரம் மாற்றம் / permission மாற்றம் — அலர்ட்ஸ் மறுபடி செட். */
