@@ -10,6 +10,8 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,8 +44,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     private var view: ComposeView? = null
     private var speaker: Speaker? = null
-    private var beat: BeatPlayer? = null
-    private var timedOut = false
+    private var alert: Reminder? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -57,23 +58,25 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (view != null) return START_NOT_STICKY
         ReminderStore.init(this)
+        val id = intent?.getIntExtra(AlarmScheduler.EXTRA_ID, AlarmScheduler.TEST_WATER) ?: AlarmScheduler.TEST_WATER
+        val r = AlertFlow.resolve(id)
+        alert = r
         ServiceCompat.startForeground(
-            this, Notifier.ID_REMINDER, Notifier.buildReminder(this, fullScreen = false),
+            this, Notifier.ID_RUNNING, Notifier.buildRunning(this),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         )
         try {
-            show()
-            DebugLog.add(this, "🏃 Overlay-ல ஓடி வர்றாங்க")
+            show(r)
+            DebugLog.add(this, "🏃 Overlay-ல Buddy ஓடி வர்றார்")
         } catch (e: Exception) {
             DebugLog.add(this, "Overlay பிழை: ${e.javaClass.simpleName}: ${e.message}")
-            finishWith(notify = true)
+            stopSelf()
         }
         return START_NOT_STICKY
     }
 
-    private fun show() {
+    private fun show(r: Reminder) {
         if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) {
-            beat = BeatPlayer().also { it.start() }
             speaker = Speaker(this)
         }
         val wm = getSystemService(WindowManager::class.java)
@@ -94,15 +97,13 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                     var spoken by remember { mutableStateOf<String?>(null) }
                     LaunchedEffect(Unit) { speaker?.onSpeak = { spoken = it } }
                     BuddyShow(
-                        modifier = Modifier.navigationBarsPadding(),
+                        alert = r,
+                        modifier = Modifier.navigationBarsPadding().padding(bottom = 12.dp),
                         speech = spoken,
-                        onArrived = { speaker?.sayRepeated(ReminderStore.playlist()) },
-                        onAnswer = { drank -> answer(drank) },
-                        onTimeout = {
-                            timedOut = true
-                            beat?.stop(); speaker?.stop()
-                        },
-                        onFinished = { finishWith(notify = timedOut) }
+                        onArrived = { speaker?.sayRepeated(AlertFlow.spokenLines(r)) },
+                        onAnswer = { yes -> answer(r, yes) },
+                        onTimeout = { speaker?.stop() },
+                        onFinished = { stopSelf() }
                     )
                 }
             }
@@ -112,22 +113,10 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         registry.currentState = Lifecycle.State.RESUMED
     }
 
-    private fun answer(drank: Boolean) {
-        beat?.stop()
-        if (drank) {
-            ReminderStore.recordDrink(this)
-            speaker?.say(Lines.HAPPY_TA, Lines.HAPPY_EN)
-        } else {
-            ReminderStore.recordSkip(this)
-            speaker?.say(Lines.SAD_TA, Lines.SAD_EN)
-        }
-    }
-
-    /** பதில் சொல்லாம போனா notification-ஐ விட்டுட்டு போகும் (அப்புறம் பதில் சொல்லலாம்). */
-    private fun finishWith(notify: Boolean) {
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        if (notify) Notifier.showReminder(this, fullScreen = false)
-        stopSelf()
+    private fun answer(r: Reminder, yes: Boolean) {
+        AlertFlow.onAnswer(this, r, yes)
+        val (ta, en) = AlertFlow.reactionSpoken(r, yes)
+        speaker?.say(ta, en)
     }
 
     override fun onDestroy() {
@@ -135,15 +124,16 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             try { getSystemService(WindowManager::class.java).removeView(it) } catch (_: Exception) {}
         }
         view = null
-        beat?.stop()
         speaker?.shutdown()
         registry.currentState = Lifecycle.State.DESTROYED
         super.onDestroy()
     }
 
     companion object {
-        fun start(ctx: Context) {
-            ContextCompat.startForegroundService(ctx, Intent(ctx, OverlayService::class.java))
+        fun start(ctx: Context, id: Int) {
+            ContextCompat.startForegroundService(
+                ctx, Intent(ctx, OverlayService::class.java).putExtra(AlarmScheduler.EXTRA_ID, id)
+            )
         }
 
         fun stop(ctx: Context) {

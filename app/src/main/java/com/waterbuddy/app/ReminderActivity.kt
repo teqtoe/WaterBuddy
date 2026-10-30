@@ -1,5 +1,6 @@
 package com.waterbuddy.app
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -20,11 +21,10 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Lock screen-ல வரும் அலர்ட் — background இல்லாத transparent திரை.
- * கேரக்டர் இடது பக்கம் ஓடி வந்து, நடுவுல நின்னு, வலது பக்கம் போயிடுவாங்க.
+ * Buddy இடது பக்கம் ஓடி வந்து, நடுவுல நின்னு சொல்லிட்டு, வலது பக்கம் போயிடுவார்.
  */
 class ReminderActivity : ComponentActivity() {
     private var speaker: Speaker? = null
-    private var beat: BeatPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,11 +41,10 @@ class ReminderActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         ReminderStore.init(this)
-        OverlayService.stop(this)   // ரெண்டு இடத்துலயும் ஒரே நேரத்துல வர வேண்டாம்
-        if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) {
-            beat = BeatPlayer().also { it.start() }
-            speaker = Speaker(this)
-        }
+        Notifier.cancelAlert(this)        // மேல notification தெரியக்கூடாது
+        OverlayService.stop(this)          // ரெண்டு இடத்துலயும் ஒரே நேரத்துல வர வேண்டாம்
+        val r = AlertFlow.resolve(intent.getIntExtra(AlarmScheduler.EXTRA_ID, AlarmScheduler.TEST_WATER))
+        if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) speaker = Speaker(this)
 
         setContent {
             WaterBuddyTheme {
@@ -53,14 +52,19 @@ class ReminderActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { speaker?.onSpeak = { spoken = it } }
                 Box(Modifier.fillMaxSize()) {
                     BuddyShow(
+                        alert = r,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
-                            .padding(bottom = 24.dp),
+                            .padding(bottom = 32.dp),
                         speech = spoken,
-                        onArrived = { speaker?.sayRepeated(ReminderStore.playlist()) },
-                        onAnswer = ::answer,
-                        onTimeout = { beat?.stop(); speaker?.stop() },
+                        onArrived = { speaker?.sayRepeated(AlertFlow.spokenLines(r)) },
+                        onAnswer = { yes ->
+                            AlertFlow.onAnswer(this@ReminderActivity, r, yes)
+                            val (ta, en) = AlertFlow.reactionSpoken(r, yes)
+                            speaker?.say(ta, en)
+                        },
+                        onTimeout = { speaker?.stop() },
                         onFinished = { finish() }
                     )
                 }
@@ -68,25 +72,12 @@ class ReminderActivity : ComponentActivity() {
         }
     }
 
-    private fun answer(drank: Boolean) {
-        beat?.stop()
-        Notifier.cancelReminder(this)
-        if (drank) {
-            ReminderStore.recordDrink(this)
-            speaker?.say(Lines.HAPPY_TA, Lines.HAPPY_EN)
-        } else {
-            ReminderStore.recordSkip(this)
-            speaker?.say(Lines.SAD_TA, Lines.SAD_EN)
-        }
-    }
-
-    override fun onStop() {
-        beat?.stop()
-        super.onStop()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        Notifier.cancelAlert(this)
     }
 
     override fun onDestroy() {
-        beat?.stop()
         speaker?.shutdown()
         super.onDestroy()
     }

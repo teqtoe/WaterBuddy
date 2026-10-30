@@ -65,23 +65,8 @@
                 android:value="Shows the animated water-reminder character on screen for a few seconds when a reminder fires" />
         </service>
 
-        <!-- Selfie எடுக்கும்போது camera app-க்கு file கொடுக்க -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="com.waterbuddy.app.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
-
         <receiver
             android:name=".AlarmReceiver"
-            android:exported="false" />
-
-        <receiver
-            android:name=".ActionReceiver"
             android:exported="false" />
 
         <receiver

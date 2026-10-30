@@ -1,6 +1,7 @@
 package com.waterbuddy.app
 
 import android.annotation.SuppressLint
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -9,111 +10,93 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
+/**
+ * Popup notification எதுவும் இல்லை. இங்க இருக்குறது:
+ *  - Lock screen-ல Buddy-ஐ திறக்க Android கேக்குற "full-screen" அனுமதி (சத்தம் இல்லாதது, Buddy வந்ததும் உடனே மறையும்)
+ *  - Overlay ஓடும்போது Android கட்டாயமா கேக்குற சின்ன அமைதியான notification
+ */
 object Notifier {
-    private const val CH_ALERT = "water_alerts"
-    private const val CH_FEEDBACK = "water_feedback"
-    const val ID_REMINDER = 1001
-    private const val ID_FEEDBACK = 1002
-    private const val BLUE = 0xFF0288D1.toInt()
+    private const val CH_ALERT = "buddy_alert_silent"
+    private const val CH_RUNNING = "buddy_running"
+    const val ID_ALERT = 1001
+    const val ID_RUNNING = 1003
+    private const val BLUE = 0xFF1546C0.toInt()
 
     fun ensureChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
+        // பழைய (popup) channel-களை நீக்கு
+        listOf("water_alerts", "water_feedback").forEach { nm.deleteNotificationChannel(it) }
         nm.createNotificationChannel(
-            NotificationChannel(CH_ALERT, "தண்ணீர் அலர்ட்", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "தண்ணி குடிக்க ஞாபகப்படுத்தும் அலர்ட்"
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 300, 200, 300)
-                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            NotificationChannel(CH_ALERT, "Lock screen Buddy", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Lock screen-ல Buddy-ஐ திறக்க மட்டும் (சத்தம் இல்லை)"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
         nm.createNotificationChannel(
-            NotificationChannel(CH_FEEDBACK, "Buddy பதில்", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "நீங்க பதில் சொன்னதும் வரும் சின்ன செய்தி"
+            NotificationChannel(CH_RUNNING, "Buddy திரையில் இருக்கும்போது", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "Buddy திரையில் வரும் சில வினாடிகள் மட்டும்"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
             }
         )
     }
 
-    @SuppressLint("MissingPermission")
-    fun showReminder(ctx: Context, fullScreen: Boolean = true) {
-        ensureChannels(ctx)
-        val nmc = NotificationManagerCompat.from(ctx)
-        if (!nmc.areNotificationsEnabled()) {
-            DebugLog.add(ctx, "❌ Notifications OFF — காட்ட முடியல")
-            return
-        }
-        val ch = ctx.getSystemService(NotificationManager::class.java).getNotificationChannel(CH_ALERT)
-        if (ch != null && ch.importance == NotificationManager.IMPORTANCE_NONE) {
-            DebugLog.add(ctx, "❌ 'தண்ணீர் அலர்ட்' channel OFF-ல இருக்கு")
-            return
-        }
-
-        val n = buildReminder(ctx, fullScreen)
-
-        try {
-            nmc.notify(ID_REMINDER, n)
-            DebugLog.add(ctx, "✅ Notification அனுப்பியாச்சு (channel importance=${ch?.importance})")
-        } catch (e: Exception) {
-            DebugLog.add(ctx, "❌ Notification பிழை: ${e.javaClass.simpleName}: ${e.message}")
-        }
-    }
-
-    /** அலர்ட் notification (OverlayService-உம் இதையே பயன்படுத்துது). */
-    fun buildReminder(ctx: Context, fullScreen: Boolean): android.app.Notification {
-        ensureChannels(ctx)
-        val screenIntent = Intent(ctx, ReminderActivity::class.java)
+    private fun screenIntent(ctx: Context, id: Int): PendingIntent {
+        val i = Intent(ctx, ReminderActivity::class.java)
+            .putExtra(AlarmScheduler.EXTRA_ID, id)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val screenPi = PendingIntent.getActivity(
-            ctx, 0, screenIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val b = NotificationCompat.Builder(ctx, CH_ALERT)
-            .setSmallIcon(R.drawable.ic_stat_drop)
-            .setColor(BLUE)
-            .setContentTitle("💧 தண்ணி குடிக்கிற நேரம்!")
-            .setContentText("${ReminderStore.character.value?.displayName ?: "Buddy"} ஓடி வந்து வெயிட் பண்றாங்க… ஒரு கிளாஸ் குடிங்க! 🏃")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(screenPi)
-            .setAutoCancel(true)
-            .setTimeoutAfter(30 * 60_000L)
-            .addAction(0, "குடிச்சேன் 💧", actionIntent(ctx, ActionReceiver.ACTION_DRANK, 1))
-            .addAction(0, "அப்புறம்", actionIntent(ctx, ActionReceiver.ACTION_SKIP, 2))
-        if (fullScreen) b.setFullScreenIntent(screenPi, true)   // lock-ல இருந்தா கேரக்டர் ஓடி வருவாங்க
-        return b.build()
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showFeedback(ctx: Context, drank: Boolean) {
-        ensureChannels(ctx)
-        val nmc = NotificationManagerCompat.from(ctx)
-        if (!nmc.areNotificationsEnabled()) return
-        val ml = ReminderStore.today.value.ml
-        val goal = ReminderStore.goalMl.value
-        val n = NotificationCompat.Builder(ctx, CH_FEEDBACK)
-            .setSmallIcon(R.drawable.ic_stat_drop)
-            .setColor(BLUE)
-            .setContentTitle(if (drank) "😄 சூப்பர்! நீங்க Hydration Hero!" else "😢 ஹ்ம்ம்… சரி பரவால்ல")
-            .setContentText(
-                if (drank) "இன்னைக்கு $ml / $goal ml முடிஞ்சது 💧"
-                else "அடுத்த அலர்ட்ல கண்டிப்பா குடிக்கணும், சரியா?"
-            )
-            .setTimeoutAfter(6_000L)
-            .setAutoCancel(true)
-            .build()
-        try {
-            nmc.notify(ID_FEEDBACK, n)
-        } catch (_: SecurityException) {
-        }
-    }
-
-    fun cancelReminder(ctx: Context) {
-        NotificationManagerCompat.from(ctx).cancel(ID_REMINDER)
-    }
-
-    private fun actionIntent(ctx: Context, action: String, code: Int): PendingIntent =
-        PendingIntent.getBroadcast(
-            ctx, code,
-            Intent(ctx, ActionReceiver::class.java).setAction(action),
+        return PendingIntent.getActivity(
+            ctx, 10_000 + (id and 0xFFFF), i,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+    }
+
+    /** Lock-ல இருக்கும்போது Buddy திரையை திறக்கும். */
+    @SuppressLint("MissingPermission")
+    fun showFullScreen(ctx: Context, id: Int) {
+        ensureChannels(ctx)
+        val r = AlertFlow.resolve(id)
+        val pi = screenIntent(ctx, id)
+        val n = NotificationCompat.Builder(ctx, CH_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setColor(BLUE)
+            .setContentTitle("${r.kind.emoji} ${r.displayTitle}")
+            .setContentText(r.message.ifBlank { AlertFlow.defaultMessage(r.kind) })
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSilent(true)
+            .setFullScreenIntent(pi, true)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setTimeoutAfter(60_000L)
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(ID_ALERT, n)
+            DebugLog.add(ctx, "🔒 Lock screen-ல Buddy திறக்குறேன்")
+        } catch (e: Exception) {
+            DebugLog.add(ctx, "❌ Lock screen திறக்க முடியல: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /** Overlay service-க்கான அமைதியான notification */
+    fun buildRunning(ctx: Context): Notification {
+        ensureChannels(ctx)
+        return NotificationCompat.Builder(ctx, CH_RUNNING)
+            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setColor(BLUE)
+            .setContentTitle("Buddy திரையில் இருக்கார்")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
+            .setOngoing(true)
+            .build()
+    }
+
+    fun cancelAlert(ctx: Context) {
+        NotificationManagerCompat.from(ctx).cancel(ID_ALERT)
+    }
 }

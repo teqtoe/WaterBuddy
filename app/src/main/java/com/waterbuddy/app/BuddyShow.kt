@@ -3,41 +3,77 @@ package com.waterbuddy.app
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 
-private enum class Stage { RUN_IN, ALERT, REACT, RUN_OUT, DONE }
+/** Buddy-ஓட pose படங்கள் (transparent PNG → webp). anchor = உடம்போட நடு (x, 0..1) */
+enum class Pose(val res: Int, val wPx: Int, val hPx: Int, val anchor: Float) {
+    RUN(R.drawable.buddy_run, 487, 465, 0.562f),
+    HAPPY(R.drawable.buddy_happy, 318, 567, 0.504f),
+    DRINK(R.drawable.buddy_drink, 303, 591, 0.538f),
+    SAD(R.drawable.buddy_sad, 294, 564, 0.545f)
+}
+
+/** Buddy அளவு — குட்டியா (நிக்கும்போது ~140dp உயரம்) */
+const val BUDDY_DP_PER_PX = 0.24f
+private const val STAGE_DP = 150
+
+private enum class Stage { RUN_IN, ASK, DRINK, CHEER, SAD_STAND, LEAVE_RUN, LEAVE_SAD, DONE }
+
+/** ஒரு pose-ஐ அளவோட வரையும் (home screen-லயும் பயன்படுது) */
+@Composable
+fun BuddySprite(pose: Pose, modifier: Modifier = Modifier, scale: Float = BUDDY_DP_PER_PX) {
+    Image(
+        painter = painterResource(pose.res),
+        contentDescription = null,
+        modifier = modifier.size((pose.wPx * scale).dp, (pose.hPx * scale).dp)
+    )
+}
 
 /**
  * அலர்ட் நிகழ்ச்சி (background இல்லை — transparent):
- * 1) பக்கவாட்டா திரும்பி இடது பக்கத்துல இருந்து ஓடி வருவாங்க
- * 2) நடுவுல நின்னு உங்களை பாத்து dance ஆடி, தண்ணி குடிக்க சொல்லுவாங்க
- * 3) "குடிக்கிறேன்" → தலையாட்டி சந்தோஷம் / "அப்புறம்" → சோகமா தலை குனிஞ்சு
- * 4) வலது பக்கம் ஓடிப் போயிடுவாங்க
+ * இடது பக்கத்துல இருந்து ஓடி வருவார் → நடுவுல நின்னு சொல்லுவார் →
+ * ✓ → (தண்ணீர்னா குடிச்சு) சந்தோஷமா வலது பக்கம் ஓடுவார் / அப்புறம் → சோகமா நடந்து போவார்.
  */
 @Composable
 fun BuddyShow(
+    alert: Reminder,
     onArrived: () -> Unit,
     onAnswer: (Boolean) -> Unit,
     onTimeout: () -> Unit,
@@ -45,114 +81,150 @@ fun BuddyShow(
     modifier: Modifier = Modifier,
     speech: String? = null
 ) {
-    val ctx = LocalContext.current
-    val model by ReminderStore.model.collectAsState()
-    val faceOn by ReminderStore.faceOn.collectAsState()
-    val faceVersion by ReminderStore.faceVersion.collectAsState()
-    val face = remember(faceOn, faceVersion) { if (faceOn) FaceMaker.load(ctx) else null }
-
     var stage by remember { mutableStateOf(Stage.RUN_IN) }
-    var answer by remember { mutableStateOf<Boolean?>(null) }
-    val x = remember { Animatable(-1.1f) }
+    var positive by remember { mutableStateOf(true) }
+    val density = LocalDensity.current
+    var stageW by remember { mutableFloatStateOf(0f) }
+    val x = remember { Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+    val edge = with(density) { 140.dp.toPx() }
 
-    LaunchedEffect(stage) {
+    LaunchedEffect(stage, stageW) {
+        if (stageW <= 0f) return@LaunchedEffect
+        val center = stageW / 2f
         when (stage) {
             Stage.RUN_IN -> {
-                x.animateTo(0f, tween(2300, easing = LinearOutSlowInEasing))
-                stage = Stage.ALERT
+                if (!placed) { x.snapTo(-edge); placed = true }
+                x.animateTo(center, tween(1900, easing = LinearOutSlowInEasing))
+                stage = Stage.ASK
                 onArrived()
             }
-            Stage.ALERT -> {
-                delay(45_000)
-                onTimeout()
-                stage = Stage.RUN_OUT
+            Stage.ASK -> { delay(45_000); onTimeout(); positive = false; stage = Stage.LEAVE_SAD }
+            Stage.DRINK -> { delay(1700); stage = Stage.CHEER }
+            Stage.CHEER -> { delay(1500); stage = Stage.LEAVE_RUN }
+            Stage.SAD_STAND -> { delay(1800); stage = Stage.LEAVE_SAD }
+            Stage.LEAVE_RUN -> {
+                x.animateTo(stageW + edge, tween(1500, easing = FastOutLinearInEasing))
+                stage = Stage.DONE; onFinished()
             }
-            Stage.REACT -> {
-                delay(3_200)
-                stage = Stage.RUN_OUT
-            }
-            Stage.RUN_OUT -> {
-                delay(350)   // திரும்புறதுக்கு நேரம்
-                x.animateTo(1.15f, tween(1900, easing = FastOutLinearInEasing))
-                stage = Stage.DONE
-                onFinished()
+            Stage.LEAVE_SAD -> {
+                x.animateTo(stageW + edge, tween(3000, easing = LinearEasing))
+                stage = Stage.DONE; onFinished()
             }
             Stage.DONE -> {}
         }
     }
 
-    val action = when (stage) {
-        Stage.RUN_IN, Stage.RUN_OUT -> Action3D.RUN
-        Stage.ALERT -> Action3D.DANCE
-        Stage.REACT -> if (answer == true) Action3D.YES else Action3D.SAD
-        Stage.DONE -> Action3D.IDLE
+    val pose = when (stage) {
+        Stage.RUN_IN, Stage.LEAVE_RUN -> Pose.RUN
+        Stage.ASK, Stage.CHEER -> Pose.HAPPY
+        Stage.DRINK -> Pose.DRINK
+        Stage.SAD_STAND, Stage.LEAVE_SAD, Stage.DONE -> Pose.SAD
     }
-    val yaw = when (stage) {
-        Stage.RUN_IN, Stage.RUN_OUT -> 90f   // வலது பக்கம் பாத்து ஓடுறாங்க
-        else -> 0f                           // உங்களை பாக்குறாங்க
+
+    val inf = rememberInfiniteTransition(label = "bob")
+    val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "t")
+    val tau = 2f * PI.toFloat()
+    val (bobDp, rotDeg) = when (stage) {
+        Stage.RUN_IN, Stage.LEAVE_RUN -> -abs(sin(tau * t * 3f)) * 9f to sin(tau * t * 3f) * 3f
+        Stage.ASK -> -abs(sin(tau * t * 1.2f)) * 5f to sin(tau * t) * 3f
+        Stage.CHEER -> -abs(sin(tau * t * 2f)) * 16f to sin(tau * t * 2f) * 5f
+        Stage.DRINK -> 0f to (-3f + sin(tau * t) * 1.5f)
+        Stage.SAD_STAND -> 0f to sin(tau * t * 0.5f) * 1f
+        Stage.LEAVE_SAD -> -abs(sin(tau * t * 1.6f)) * 3f to sin(tau * t * 1.6f) * 1.5f
+        Stage.DONE -> 0f to 0f
     }
-    val fallbackMood = when (stage) {
-        Stage.RUN_IN, Stage.RUN_OUT -> Mood.RUNNING
-        Stage.ALERT -> Mood.DANCING
-        Stage.REACT -> if (answer == true) Mood.HAPPY else Mood.SAD
-        Stage.DONE -> Mood.IDLE
+
+    val showBubble = stage in setOf(Stage.ASK, Stage.DRINK, Stage.CHEER, Stage.SAD_STAND)
+    val bubbleText = when (stage) {
+        Stage.ASK -> speech?.takeIf { it.isNotBlank() } ?: alert.message.ifBlank { AlertFlow.defaultMessage(alert.kind) }
+        else -> remember(stage, positive) { AlertFlow.reactionBubble(alert, positive) }
     }
-    val bubble = remember(stage, answer) {
-        when {
-            stage == Stage.REACT && answer == true -> Lines.happyBubbles.random()
-            stage == Stage.REACT -> Lines.sadBubbles.random()
-            else -> Lines.askBubbles.random()
+    val (yesLabel, laterLabel) = AlertFlow.buttonLabels(alert)
+
+    fun answer(yes: Boolean) {
+        if (stage != Stage.ASK) return
+        positive = yes
+        onAnswer(yes)
+        stage = when {
+            !yes -> Stage.SAD_STAND
+            alert.kind == AlertKind.WATER -> Stage.DRINK
+            else -> Stage.CHEER
         }
     }
-    val shown = if (stage == Stage.ALERT && !speech.isNullOrBlank()) "🗣 $speech" else bubble
 
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        AnimatedVisibility(
-            visible = stage == Stage.ALERT || stage == Stage.REACT,
-            enter = scaleIn() + fadeIn(),
-            exit = fadeOut()
-        ) {
-            SpeechBubble(shown, Modifier.padding(horizontal = 24.dp))
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth().height(300.dp)) {
-            val widthPx = constraints.maxWidth.toFloat()
-            Buddy3D(
-                model = model,
-                action = action,
-                yaw = yaw,
-                face = face,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(width = 260.dp, height = 300.dp)
-                    .graphicsLayer { translationX = x.value * widthPx },
-                fallback = { WaterBuddy(fallbackMood, BuddyCharacter.KUTTY, Modifier.height(260.dp)) }
+        AnimatedVisibility(visible = showBubble, enter = scaleIn() + fadeIn(), exit = fadeOut()) {
+            AlertBubble(
+                title = "${alert.kind.emoji} ${alert.displayTitle}",
+                text = bubbleText,
+                yes = yesLabel, later = laterLabel,
+                showButtons = stage == Stage.ASK,
+                onYes = { answer(true) }, onLater = { answer(false) }
             )
         }
-        AnimatedVisibility(
-            visible = stage == Stage.ALERT,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut()
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(STAGE_DP.dp)
+                .onSizeChanged { stageW = it.width.toFloat() }
         ) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = { answer = true; stage = Stage.REACT; onAnswer(true) },
-                    modifier = Modifier.weight(1.3f).height(54.dp),
-                    shape = RoundedCornerShape(27.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Brand.Primary, contentColor = Color.White),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
-                ) { Text("குடிக்கிறேன் 💧", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-                Button(
-                    onClick = { answer = false; stage = Stage.REACT; onAnswer(false) },
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    shape = RoundedCornerShape(27.dp),
-                    border = BorderStroke(1.5.dp, Brand.Primary),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Brand.Primary),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
-                ) { Text("அப்புறம் 😕", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+            if (placed) {
+                val wPx = with(density) { (pose.wPx * BUDDY_DP_PER_PX).dp.toPx() }
+                val hPx = with(density) { (pose.hPx * BUDDY_DP_PER_PX).dp.toPx() }
+                val stageH = with(density) { STAGE_DP.dp.toPx() }
+                val bobPx = with(density) { bobDp.dp.toPx() }
+                BuddySprite(
+                    pose,
+                    Modifier
+                        .offset { IntOffset((x.value - pose.anchor * wPx).toInt(), (stageH - hPx + bobPx).toInt()) }
+                        .graphicsLayer {
+                            transformOrigin = TransformOrigin(pose.anchor, 1f)
+                            rotationZ = rotDeg
+                        }
+                )
             }
+        }
+    }
+}
+
+/** பேச்சு குமிழ் + அதுக்குள்ளயே சின்ன பட்டன்கள் (இடம் அடைக்காம) */
+@Composable
+private fun AlertBubble(
+    title: String, text: String, yes: String, later: String,
+    showButtons: Boolean, onYes: () -> Unit, onLater: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 24.dp)) {
+        Surface(
+            shape = RoundedCornerShape(18.dp), color = Color.White, shadowElevation = 6.dp,
+            modifier = Modifier.widthIn(max = 300.dp)
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand.Primary)
+                Text(text, fontSize = 15.sp, color = Brand.Ink, textAlign = TextAlign.Center, lineHeight = 20.sp)
+                if (showButtons) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onYes,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                            modifier = Modifier.height(34.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Brand.Primary)
+                        ) { Text(yes, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                        OutlinedButton(
+                            onClick = onLater,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(34.dp),
+                            border = BorderStroke(1.dp, Brand.Muted.copy(alpha = 0.5f))
+                        ) { Text(later, fontSize = 13.sp, color = Brand.Muted) }
+                    }
+                }
+            }
+        }
+        Canvas(Modifier.size(18.dp, 10.dp)) {
+            drawPath(Path().apply {
+                moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2f, size.height); close()
+            }, Color.White)
         }
     }
 }

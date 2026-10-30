@@ -7,32 +7,13 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.speech.tts.Voice
 import java.util.Locale
-
-/** குரல் ஸ்டைல் — எந்த voice-லயும் pitch/வேகம் மாத்தி வேற மாதிரி ஒலிக்க வைக்கும். */
-enum class VoiceStyle(val key: String, val label: String, val pitch: Float, val rate: Float) {
-    NATURAL("natural", "🙂 இயல்பு", 1.0f, 0.95f),
-    HERO("hero", "😎 Mass ஹீரோ", 0.75f, 0.9f),
-    MALE("male", "👨 ஆழ்ந்த ஆண்", 0.85f, 0.95f),
-    FEMALE("female", "👩 இனிமையான பெண்", 1.18f, 0.97f),
-    KID("kid", "🧒 குழந்தை", 1.5f, 1.05f),
-    ELDER("elder", "👵 பாட்டி", 0.95f, 0.8f);
-
-    companion object {
-        fun fromKey(k: String?) = entries.firstOrNull { it.key == k } ?: NATURAL
-    }
-}
 
 /**
  * Buddy பேசுற குரல் (phone-ஓட Text-to-Speech).
- * நீங்க தேர்ந்தெடுத்த voice இருந்தா அது; இல்லைனா மிக இயல்பான Tamil voice-ஐ தானா தேர்ந்தெடுக்கும்.
+ * ஒரே default குரல்: phone-ல இருக்குற மிக இயல்பான Tamil voice-ஐ தானா தேர்ந்தெடுக்கும்.
  */
-class Speaker(
-    ctx: Context,
-    private val style: VoiceStyle = ReminderStore.voiceStyle.value,
-    private val voiceName: String? = ReminderStore.voiceName.value
-) : TextToSpeech.OnInitListener {
+class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
     private val app = ctx.applicationContext
     private val tts = TextToSpeech(app, this)
     private val main = Handler(Looper.getMainLooper())
@@ -50,13 +31,9 @@ class Speaker(
         val r = tts.setLanguage(Locale("ta", "IN"))
         tamil = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
         if (!tamil) tts.setLanguage(Locale("en", "IN"))
-        val chosen = voiceName?.let { n -> try { tts.voices?.firstOrNull { it.name == n } } catch (_: Exception) { null } }
-        if (chosen != null) {
-            tts.voice = chosen
-            tamil = chosen.locale.language == "ta"
-        } else pickBestVoice(if (tamil) "ta" else "en")
-        tts.setPitch(style.pitch)
-        tts.setSpeechRate(style.rate)
+        pickBestVoice(if (tamil) "ta" else "en")
+        tts.setPitch(1.0f)
+        tts.setSpeechRate(0.95f)
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {
                 val t = texts[id] ?: return
@@ -73,14 +50,6 @@ class Speaker(
     }
 
     val isTamil get() = tamil
-
-    /** Phone-ல இருக்குற voice-கள் (Tamil முதல்ல, அப்புறம் Indian English) */
-    fun voices(): List<Voice> = try {
-        (tts.voices ?: emptySet()).filter {
-            (it.locale.language == "ta" || (it.locale.language == "en" && it.locale.country == "IN")) &&
-                !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
-        }.sortedWith(compareBy({ if (it.locale.language == "ta") 0 else 1 }, { it.name }))
-    } catch (_: Exception) { emptyList() }
 
     private fun pickBestVoice(lang: String) {
         try {
