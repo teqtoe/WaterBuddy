@@ -20,7 +20,7 @@ object Notifier {
     private const val CH_RUNNING = "buddy_running"
     const val ID_ALERT = 1001
     const val ID_RUNNING = 1003
-    private const val BLUE = 0xFF1546C0.toInt()
+    private const val BLUE = 0xFF4F46E5.toInt()
 
     fun ensureChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -62,7 +62,7 @@ object Notifier {
         val r = AlertFlow.resolve(id)
         val pi = screenIntent(ctx, id)
         val n = NotificationCompat.Builder(ctx, CH_ALERT)
-            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setSmallIcon(R.drawable.ic_stat_bell)
             .setColor(BLUE)
             .setContentTitle("${r.kind.emoji} ${r.displayTitle}")
             .setContentText(r.message.ifBlank { AlertFlow.defaultMessage(r.kind) })
@@ -87,7 +87,7 @@ object Notifier {
     fun buildRunning(ctx: Context): Notification {
         ensureChannels(ctx)
         return NotificationCompat.Builder(ctx, CH_RUNNING)
-            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setSmallIcon(R.drawable.ic_stat_bell)
             .setColor(BLUE)
             .setContentTitle("Buddy திரையில் இருக்கார்")
             .setPriority(NotificationCompat.PRIORITY_MIN)

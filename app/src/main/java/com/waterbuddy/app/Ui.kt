@@ -52,9 +52,9 @@ fun WaterBuddyTheme(content: @Composable () -> Unit) {
             tertiary = Brand.Accent,
             background = Brand.Background,
             surface = Brand.Card,
-            primaryContainer = Color(0xFFE3ECFF),
+            primaryContainer = Color(0xFFE8E7FD),
             onPrimaryContainer = Brand.Ink,
-            secondaryContainer = Color(0xFFD9F6FC),
+            secondaryContainer = Color(0xFFF0E9FE),
             onSecondaryContainer = Brand.Ink
         ),
         content = content
@@ -118,7 +118,7 @@ fun WaterProgress(drankMl: Int, goalMl: Int, size: Dp, modifier: Modifier = Modi
                     drawPath(p, col)
                 }
             }
-            drawCircle(Brand.Primary, r - 3.dp.toPx(), c, style = Stroke(5.dp.toPx()))
+            drawCircle(Brand.WaterDeep, r - 3.dp.toPx(), c, style = Stroke(5.dp.toPx()))
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val onWater = level > 0.55f

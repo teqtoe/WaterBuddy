@@ -62,7 +62,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Shows the animated water-reminder character on screen for a few seconds when a reminder fires" />
+                android:value="Shows the animated reminder character on screen for a few seconds when a user-set reminder fires" />
         </service>
 
         <receiver

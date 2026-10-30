@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,7 +59,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ReminderStore.init(this)
         DebugLog.load(this)
-        ReminderStore.seedDefaultsIfFirstRun(this)
         Notifier.ensureChannels(this)
         enableEdgeToEdge()
         setContent { WaterBuddyTheme { HomeScreen(resumeTick) } }
@@ -100,6 +100,8 @@ fun HomeScreen(resumeTick: Int) {
     val perms = remember(resumeTick) { checkPerms(ctx) }
     val paused = remember(pauseUntil, resumeTick) { pauseUntil > System.currentTimeMillis() }
     var editing by remember { mutableStateOf<Reminder?>(null) }
+    var deleting by remember { mutableStateOf<Reminder?>(null) }
+    val hasWater = reminders.any { it.kind == AlertKind.WATER }
     var poked by remember { mutableStateOf(false) }
 
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -114,7 +116,6 @@ fun HomeScreen(resumeTick: Int) {
     val bubble = when {
         poked -> "ஹாய்! 👋 நான் உங்க Buddy!"
         !masterOn -> "அலர்ட் OFF… நான் ரெஸ்ட் எடுக்குறேன் 😴"
-        paused -> "தண்ணீர் அலர்ட் pause-ல இருக்கு ⏸"
         next != null -> "அடுத்து: ${next.first.kind.emoji} ${next.first.displayTitle}\n${whenLabel(next.second)}"
         else -> "ஒரு அலர்ட் சேருங்க 👇"
     }
@@ -124,7 +125,7 @@ fun HomeScreen(resumeTick: Int) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { editing = Reminder(0, 10, 0, kind = AlertKind.MEETING, days = 0) },
+                onClick = { editing = Reminder(0, 10, 0, kind = AlertKind.CUSTOM, days = 0) },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 text = { Text("புது அலர்ட்") },
                 containerColor = Brand.Primary,
@@ -134,7 +135,7 @@ fun HomeScreen(resumeTick: Int) {
         }
     ) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // ── Header
+            // ── Header (எல்லா அலர்ட்டுக்கும் பொதுவானது)
             item {
                 Column(
                     Modifier
@@ -142,11 +143,11 @@ fun HomeScreen(resumeTick: Int) {
                         .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
                         .background(Brand.HeaderGradient)
                         .statusBarsPadding()
-                        .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp)
+                        .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Water Buddy", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                            Text("Buddy Alerts", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
                             Text("உங்க அலர்ட் நண்பன் · by ${Brand.COMPANY}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
                         }
                         Switch(
@@ -161,35 +162,21 @@ fun HomeScreen(resumeTick: Int) {
                             )
                         )
                     }
-                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(Modifier.weight(1f).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             SpeechBubble(bubble)
-                            WaterProgress(drankMl = stats.ml, goalMl = goalMl, size = 112.dp)
+                            Text(
+                                "${reminders.count { it.enabled }} அலர்ட் ON",
+                                fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f)
+                            )
                         }
                         BuddySprite(
-                            if (!masterOn || paused) Pose.SAD else Pose.HAPPY,
+                            if (!masterOn) Pose.SADWALK else Pose.CHEER,
                             Modifier.clickable(
                                 interactionSource = remember { MutableInteractionSource() }, indication = null
                             ) { poked = true },
                             scale = 0.3f
                         )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = { ReminderStore.recordDrink(ctx); poked = true },
-                            modifier = Modifier.weight(1f).height(46.dp),
-                            shape = RoundedCornerShape(23.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Brand.Primary)
-                        ) { Text("💧 +$glassMl ml குடிச்சேன்", fontWeight = FontWeight.Bold) }
-                        OutlinedButton(
-                            onClick = { ReminderStore.undoDrink(ctx) },
-                            enabled = stats.drank > 0,
-                            modifier = Modifier.height(46.dp),
-                            shape = RoundedCornerShape(23.dp),
-                            border = BorderStroke(1.5.dp, Color.White.copy(alpha = if (stats.drank > 0) 1f else 0.4f))
-                        ) { Text("↶", fontSize = 18.sp, color = Color.White) }
                     }
                 }
             }
@@ -230,28 +217,23 @@ fun HomeScreen(resumeTick: Int) {
 
             // ── அலர்ட் லிஸ்ட்
             item {
-                Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("⏰ என் அலர்ட்ஸ்", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Brand.Ink, modifier = Modifier.weight(1f))
-                    TextButton(onClick = {
-                        var added = 0
-                        for (h in 9..21) {
-                            if (reminders.none { it.kind == AlertKind.WATER && it.hour == h && it.minute == 0 }) {
-                                ReminderStore.upsert(ctx, Reminder(0, h, 0, kind = AlertKind.WATER)); added++
-                            }
-                        }
-                        AlarmScheduler.rescheduleAll(ctx, "hourly water")
-                        Toast.makeText(ctx, "$added தண்ணீர் அலர்ட் சேர்த்தாச்சு", Toast.LENGTH_SHORT).show()
-                    }) { Text("💧 மணிக்கு ஒருமுறை") }
-                }
+                Text(
+                    "⏰ என் அலர்ட்ஸ்", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Brand.Ink,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
             }
             if (reminders.isEmpty()) item {
-                Text("இன்னும் அலர்ட் இல்லை. \"புது அலர்ட்\" அழுத்துங்க.", color = Brand.Muted, modifier = Modifier.padding(horizontal = 16.dp))
+                SectionCard(Modifier.padding(horizontal = 16.dp)) {
+                    Text("இன்னும் அலர்ட் இல்லை", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
+                    Text("கீழே \"புது அலர்ட்\" அழுத்தி Meeting, மாத்திரை, தண்ணீர்… எதுவும் சேர்க்கலாம்.", fontSize = 13.sp, color = Brand.Muted)
+                }
             }
             items(reminders, key = { it.id }) { r ->
                 ReminderRow(
                     r = r, masterOn = masterOn,
                     modifier = Modifier.padding(horizontal = 16.dp),
                     onClick = { editing = r },
+                    onDelete = { deleting = r },
                     onToggle = {
                         var nr = r.copy(enabled = it)
                         // கடந்து போன ஒரு தடவை அலர்ட்டை ON பண்ணா → அடுத்த அதே நேரத்துக்கு
@@ -263,23 +245,78 @@ fun HomeScreen(resumeTick: Int) {
                     }
                 )
             }
-
-            // ── Pause
             item {
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(
+                        onClick = { editing = Reminder(0, 10, 0, kind = AlertKind.MEETING, days = 0) },
+                        label = { Text("📅 Meeting") }
+                    )
+                    AssistChip(
+                        onClick = { editing = Reminder(0, 9, 0, kind = AlertKind.MEDICINE) },
+                        label = { Text("💊 மாத்திரை") }
+                    )
+                    if (!hasWater) AssistChip(
+                        onClick = {
+                            for (h in 9..21 step 2) ReminderStore.upsert(ctx, Reminder(0, h, 0, kind = AlertKind.WATER))
+                            AlarmScheduler.rescheduleAll(ctx, "water preset")
+                            Toast.makeText(ctx, "💧 தண்ணீர் அலர்ட்ஸ் சேர்த்தாச்சு", Toast.LENGTH_SHORT).show()
+                        },
+                        label = { Text("💧 தண்ணீர்") }
+                    )
+                }
+            }
+
+            // ── 💧 தண்ணீர் tracker (தண்ணீர் அலர்ட் இருந்தா மட்டும்)
+            if (hasWater) item {
                 SectionCard(Modifier.padding(horizontal = 16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        WaterProgress(drankMl = stats.ml, goalMl = goalMl, size = 96.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("💧 இன்னைக்கு தண்ணீர்", fontWeight = FontWeight.Bold, color = Brand.Ink)
+                            Text("${stats.drank} கிளாஸ் · ${stats.skipped} தடவை அப்புறம்", fontSize = 12.sp, color = Brand.Muted)
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Button(
+                                    onClick = { ReminderStore.recordDrink(ctx); poked = true },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Brand.WaterDeep)
+                                ) { Text("+$glassMl ml") }
+                                OutlinedButton(
+                                    onClick = { ReminderStore.undoDrink(ctx) }, enabled = stats.drank > 0,
+                                    contentPadding = PaddingValues(horizontal = 10.dp)
+                                ) { Text("↶") }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("கிளாஸ் அளவு", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Brand.Ink)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ReminderStore.GLASS_OPTIONS.forEach { ml ->
+                            FilterChip(selected = glassMl == ml, onClick = { ReminderStore.setGlass(ctx, ml) }, label = { Text("$ml ml") })
+                        }
+                    }
+                    Text("தினசரி goal", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Brand.Ink)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ReminderStore.GOAL_OPTIONS.forEach { ml ->
+                            FilterChip(
+                                selected = goalMl == ml, onClick = { ReminderStore.setGoal(ctx, ml) },
+                                label = { Text(String.format(Locale.US, "%.1f L", ml / 1000f)) }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
                     if (paused) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("⏸ தண்ணீர் அலர்ட் pause-ல", fontWeight = FontWeight.Bold, color = Brand.Accent)
-                                Text("${SimpleDateFormat("d MMM, h:mm a", Locale.US).format(Date(pauseUntil))} வரை", fontSize = 13.sp, color = Brand.Muted)
-                            }
-                            Button(onClick = { ReminderStore.resume(ctx) }) { Text("Resume ▶") }
+                            Text(
+                                "⏸ ${SimpleDateFormat("d MMM, h:mm a", Locale.US).format(Date(pauseUntil))} வரை pause",
+                                fontSize = 13.sp, color = Brand.Accent, modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { ReminderStore.resume(ctx) }) { Text("Resume ▶") }
                         }
                     } else {
-                        Text("⏸ தண்ணீர் அலர்ட் கொஞ்ச நேரம் நிறுத்த", fontWeight = FontWeight.Bold, color = Brand.Ink)
-                        Text("Meeting, மாத்திரை அலர்ட்ஸ் வழக்கம் போல வரும்", fontSize = 12.sp, color = Brand.Muted)
-                        Spacer(Modifier.height(6.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("⏸ தண்ணீர் அலர்ட் மட்டும் நிறுத்த", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Brand.Ink)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             AssistChip(onClick = { ReminderStore.pauseFor(ctx, 60 * 60_000L) }, label = { Text("1 மணி") })
                             AssistChip(onClick = { ReminderStore.pauseFor(ctx, 3 * 60 * 60_000L) }, label = { Text("3 மணி") })
                             AssistChip(onClick = { ReminderStore.pauseUntilTomorrow(ctx) }, label = { Text("நாளை காலை வரை") })
@@ -291,28 +328,10 @@ fun HomeScreen(resumeTick: Int) {
             // ── Settings
             item {
                 SectionCard(Modifier.padding(horizontal = 16.dp)) {
-                    Text("⚙️ Settings", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Brand.Ink)
-                    Spacer(Modifier.height(10.dp))
-                    Text("🥛 ஒரு கிளாஸ் அளவு", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ReminderStore.GLASS_OPTIONS.forEach { ml ->
-                            FilterChip(selected = glassMl == ml, onClick = { ReminderStore.setGlass(ctx, ml) }, label = { Text("$ml ml") })
-                        }
-                    }
-                    Text("🎯 தினசரி goal", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ReminderStore.GOAL_OPTIONS.forEach { ml ->
-                            FilterChip(
-                                selected = goalMl == ml, onClick = { ReminderStore.setGoal(ctx, ml) },
-                                label = { Text(String.format(Locale.US, "%.1f L", ml / 1000f)) }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("🔊 Buddy குரல்", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
-                            Text("Silent / vibrate mode-ல பேசமாட்டார்", fontSize = 12.sp, color = Brand.Muted)
+                            Text("🔊 Buddy குரல் & இசை", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
+                            Text("Silent / vibrate mode-ல சத்தம் வராது", fontSize = 12.sp, color = Brand.Muted)
                         }
                         Switch(checked = voiceOn, onCheckedChange = { ReminderStore.setVoice(ctx, it) })
                     }
@@ -327,6 +346,23 @@ fun HomeScreen(resumeTick: Int) {
             item { DiagnosticsCard(perms, Modifier.padding(horizontal = 16.dp)) }
             item { TeqtoeFooter(Modifier.navigationBarsPadding().padding(bottom = 72.dp)) }
         }
+    }
+
+    deleting?.let { r ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("அலர்ட் நீக்கவா?") },
+            text = { Text("${r.kind.emoji} ${r.displayTitle} · ${r.timeLabel()} · ${r.repeatLabel()}") },
+            confirmButton = {
+                TextButton(onClick = {
+                    AlarmScheduler.cancel(ctx, r.id)
+                    ReminderStore.remove(ctx, r.id)
+                    deleting = null
+                    Toast.makeText(ctx, "நீக்கியாச்சு 🗑", Toast.LENGTH_SHORT).show()
+                }) { Text("நீக்கு", color = Brand.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("வேணாம்") } }
+        )
     }
 
     editing?.let { r ->
@@ -515,7 +551,10 @@ private fun SectionCard(modifier: Modifier = Modifier, content: @Composable Colu
 }
 
 @Composable
-private fun ReminderRow(r: Reminder, masterOn: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit, onToggle: (Boolean) -> Unit) {
+private fun ReminderRow(
+    r: Reminder, masterOn: Boolean, modifier: Modifier = Modifier,
+    onClick: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit
+) {
     val active = r.enabled && masterOn
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -523,7 +562,7 @@ private fun ReminderRow(r: Reminder, masterOn: Boolean, modifier: Modifier = Mod
         colors = CardDefaults.cardColors(containerColor = if (active) Brand.Card else Color(0xFFE9EDF5)),
         elevation = CardDefaults.cardElevation(defaultElevation = if (active) 1.dp else 0.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(42.dp).clip(RoundedCornerShape(14.dp))
                     .background(if (active) Brand.Primary.copy(alpha = 0.12f) else Color(0xFFDDE3EE)),
@@ -538,6 +577,9 @@ private fun ReminderRow(r: Reminder, masterOn: Boolean, modifier: Modifier = Mod
                 )
             }
             Switch(checked = r.enabled, onCheckedChange = onToggle, enabled = masterOn)
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Filled.Delete, contentDescription = "நீக்கு", tint = Color(0xFFB0AEC4))
+            }
         }
     }
 }

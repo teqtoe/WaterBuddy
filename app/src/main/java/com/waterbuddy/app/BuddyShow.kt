@@ -55,9 +55,9 @@ enum class Pose(val res: Int, val wPx: Int, val hPx: Int, val anchor: Float) {
     SADWALK(R.drawable.buddy_sadwalk, 294, 564, 0.545f)    // சோகம், கிளாஸ் இல்லை
 }
 
-/** Buddy அளவு — குட்டியா (நிக்கும்போது ~140dp உயரம்) */
-const val BUDDY_DP_PER_PX = 0.24f
-private const val STAGE_DP = 160
+/** Buddy அளவு (நிக்கும்போது ~200dp உயரம்) */
+const val BUDDY_DP_PER_PX = 0.34f
+private const val STAGE_DP = 228
 private const val BEAT_MS = 500   // 120 BPM — இசையோட அதே வேகம்
 
 private enum class Stage { ENTER, DANCE, DRINK, CHEER, SAD_STAND, LEAVE_HAPPY, LEAVE_SAD, DONE }
@@ -94,7 +94,7 @@ fun BuddyShow(
     var stageW by remember { mutableFloatStateOf(0f) }
     val x = remember { Animatable(0f) }
     var placed by remember { mutableStateOf(false) }
-    val edge = with(density) { 140.dp.toPx() }
+    val edge = with(density) { 190.dp.toPx() }
 
     LaunchedEffect(stage, stageW) {
         if (stageW <= 0f) return@LaunchedEffect
@@ -214,8 +214,8 @@ fun BuddyShow(
                 // தரையில நிழல் — குதிக்கும்போது சின்னதாகும் (3D உணர்வு)
                 Canvas(Modifier.fillMaxSize()) {
                     val k = 1f - (hop / 30f).coerceIn(0f, 0.5f)
-                    val sw = with(density) { 70.dp.toPx() } * k
-                    val sh = with(density) { 12.dp.toPx() } * k
+                    val sw = with(density) { 96.dp.toPx() } * k
+                    val sh = with(density) { 15.dp.toPx() } * k
                     drawOval(
                         Color.Black.copy(alpha = 0.22f * k),
                         topLeft = Offset(cx - sw / 2f, groundY - sh / 2f),

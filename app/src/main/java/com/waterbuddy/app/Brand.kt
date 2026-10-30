@@ -15,13 +15,13 @@ object Brand {
     const val WEBSITE = "teqtoe.com"
     const val WEBSITE_URL = "https://teqtoe.com"
 
-    val Primary = Color(0xFF1546C0)       // முக்கிய நிறம் (header, buttons)
-    val PrimaryDark = Color(0xFF0B2C80)
-    val Secondary = Color(0xFF00B8D9)     // தண்ணீர் / accent
+    val Primary = Color(0xFF4F46E5)       // முக்கிய நிறம் (header, buttons)
+    val PrimaryDark = Color(0xFF3730A3)
+    val Secondary = Color(0xFF8B5CF6)     // accent
     val Accent = Color(0xFFFF6B3D)        // highlight (pause, warnings)
-    val Ink = Color(0xFF0F1B3D)           // முக்கிய எழுத்து
-    val Muted = Color(0xFF5B6B8C)         // இரண்டாம் எழுத்து
-    val Background = Color(0xFFF3F6FD)
+    val Ink = Color(0xFF1E1B3A)           // முக்கிய எழுத்து
+    val Muted = Color(0xFF6B6888)         // இரண்டாம் எழுத்து
+    val Background = Color(0xFFF5F4FD)
     val Card = Color.White
     val Water = Color(0xFF3FA9F5)
     val WaterDeep = Color(0xFF1C7ED6)

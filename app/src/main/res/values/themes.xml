@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_bg">#4FC3F7</color>
+    <color name="launcher_bg">#4F46E5</color>
 
     <style name="Theme.WaterBuddy" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
