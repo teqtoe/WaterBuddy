@@ -92,7 +92,6 @@ fun HomeScreen(resumeTick: Int) {
     val ctx = LocalContext.current
     val reminders by ReminderStore.reminders.collectAsState()
     val masterOn by ReminderStore.masterOn.collectAsState()
-    val voiceOn by ReminderStore.voiceOn.collectAsState()
     val stats by ReminderStore.today.collectAsState()
     val glassMl by ReminderStore.glassMl.collectAsState()
     val goalMl by ReminderStore.goalMl.collectAsState()
@@ -134,7 +133,8 @@ fun HomeScreen(resumeTick: Int) {
             )
         }
     ) { pad ->
-        LazyColumn(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Box(Modifier.fillMaxSize().padding(pad)) {
+        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // ── Header (எல்லா அலர்ட்டுக்கும் பொதுவானது)
             item {
                 Column(
@@ -246,7 +246,7 @@ fun HomeScreen(resumeTick: Int) {
                 )
             }
             item {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssistChip(
                         onClick = { editing = Reminder(0, 10, 0, kind = AlertKind.MEETING, days = 0) },
                         label = { Text("📅 Meeting") }
@@ -325,27 +325,17 @@ fun HomeScreen(resumeTick: Int) {
                 }
             }
 
-            // ── Settings
-            item {
-                SectionCard(Modifier.padding(horizontal = 16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("🔊 Buddy குரல் & இசை", fontWeight = FontWeight.SemiBold, color = Brand.Ink)
-                            Text("Silent / vibrate mode-ல சத்தம் வராது", fontSize = 12.sp, color = Brand.Muted)
-                        }
-                        Switch(checked = voiceOn, onCheckedChange = { ReminderStore.setVoice(ctx, it) })
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "🔋 Background-ல எதுவும் ஓடாது. அலர்ட் நேரத்துல மட்டும் app ஒரு நொடி எழுந்து, மறுபடி தூங்கிடும்.",
-                        fontSize = 12.sp, color = Brand.Muted
-                    )
-                }
-            }
-
-            item { DiagnosticsCard(perms, Modifier.padding(horizontal = 16.dp)) }
             item { TeqtoeFooter(Modifier.navigationBarsPadding().padding(bottom = 72.dp)) }
         }
+        // Scroll பண்ணும்போது system time / battery icons-க்கு பின்னால ஒரு நிலையான பின்னணி
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars)
+                .background(Brand.HeaderGradient)
+                .align(Alignment.TopCenter)
+        )
+      }
     }
 
     deleting?.let { r ->
@@ -598,55 +588,6 @@ private fun PermCard(title: String, body: String, onFix: () -> Unit) {
             }
             Spacer(Modifier.width(8.dp))
             Button(onClick = onFix, colors = ButtonDefaults.buttonColors(containerColor = Brand.Accent)) { Text("சரி செய்") }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun DiagnosticsCard(perms: PermState, modifier: Modifier = Modifier) {
-    val ctx = LocalContext.current
-    val log by DebugLog.lines.collectAsState()
-    var open by remember { mutableStateOf(false) }
-    fun yn(b: Boolean) = if (b) "✅" else "❌"
-    SectionCard(modifier) {
-        Row(Modifier.fillMaxWidth().clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
-            Text("🧪 டெஸ்ட் & Diagnostics", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Brand.Ink, modifier = Modifier.weight(1f))
-            Text(if (open) "▲" else "▼", color = Brand.Muted)
-        }
-        Spacer(Modifier.height(8.dp))
-        Text("10 வினாடியில் Buddy வருவார் — phone-ஐ lock பண்ணியும் பாக்கலாம் 🔒", fontSize = 12.sp, color = Brand.Muted)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                AlarmScheduler.scheduleTest(ctx, AlarmScheduler.TEST_WATER, 10)
-                Toast.makeText(ctx, "10 வினாடியில் 💧", Toast.LENGTH_SHORT).show()
-            }) { Text("💧 டெஸ்ட்") }
-            OutlinedButton(onClick = {
-                AlarmScheduler.scheduleTest(ctx, AlarmScheduler.TEST_MEETING, 10)
-                Toast.makeText(ctx, "10 வினாடியில் 📅", Toast.LENGTH_SHORT).show()
-            }) { Text("📅 Meeting டெஸ்ட்") }
-            Button(onClick = {
-                if (Settings.canDrawOverlays(ctx)) OverlayService.start(ctx, AlarmScheduler.TEST_WATER)
-                else ctx.startActivity(Intent(ctx, ReminderActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }) { Text("👀 இப்போவே") }
-        }
-        if (open) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
-                    "Overlay ${yn(perms.overlay)}  Notif ${yn(perms.notif)}  Exact ${yn(perms.exact)}  FullScreen ${yn(perms.fullScreen)}  Battery ${yn(perms.battery)}",
-                fontSize = 12.sp, color = Brand.Muted
-            )
-            OutlinedButton(
-                onClick = { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("⚙️ App settings (Autostart / Battery)") }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Log (புதுசு மேல)", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { DebugLog.clear(ctx) }) { Text("அழி") }
-            }
-            if (log.isEmpty()) Text("இன்னும் எதுவும் இல்லை", fontSize = 12.sp, color = Brand.Muted)
-            log.takeLast(15).reversed().forEach { Text(it, fontSize = 11.sp, color = Brand.Ink, lineHeight = 14.sp) }
         }
     }
 }

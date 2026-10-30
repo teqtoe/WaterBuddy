@@ -12,8 +12,8 @@ android {
         applicationId = "com.waterbuddy.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "6.0"
+        versionCode = 9
+        versionName = "6.1"
     }
 
     // ஒரே key — புது APK பழசு மேலயே install ஆகும்
