@@ -80,6 +80,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) {
             speaker = Speaker(this)
             beat = BeatPlayer().also { it.start() }
+            speaker?.onTalking = { talking -> beat?.duck(talking) }
         }
         val wm = getSystemService(WindowManager::class.java)
         val params = WindowManager.LayoutParams(

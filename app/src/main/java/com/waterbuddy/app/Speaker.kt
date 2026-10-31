@@ -1,6 +1,7 @@
 package com.waterbuddy.app
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.os.Handler
@@ -17,17 +18,25 @@ class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
     private val app = ctx.applicationContext
     private val tts = TextToSpeech(app, this)
     private val main = Handler(Looper.getMainLooper())
-    private var ready = false
+    @Volatile private var ready = false
     private var tamil = false
     private var pending: (() -> Unit)? = null
     private val texts = HashMap<String, String>()
+    private var fellBack = false
 
     /** இப்போ பேசுற வரி (bubble-ல காட்ட) — main thread-ல வரும் */
     var onSpeak: ((String) -> Unit)? = null
     var onReady: (() -> Unit)? = null
+    /** பேச ஆரம்பிச்சா true, முடிஞ்சா false — இசையை குறைக்க */
+    var onTalking: ((Boolean) -> Unit)? = null
 
     override fun onInit(status: Int) {
-        if (status != TextToSpeech.SUCCESS) return
+        if (status != TextToSpeech.SUCCESS) {
+            DebugLog.add(app, "🔇 குரல் engine திறக்கல (status=$status)")
+            return
+        }
+        // இசை எந்த volume-ல ஒலிக்குதோ, குரலும் அதே volume-ல (media volume 0-ஆ இருந்தாலும் கேக்கும்)
+        tts.setAudioAttributes(VOICE_ATTRS)
         val r = tts.setLanguage(Locale("ta", "IN"))
         tamil = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
         if (!tamil) tts.setLanguage(Locale("en", "IN"))
@@ -37,33 +46,55 @@ class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {
                 val t = texts[id] ?: return
-                main.post { onSpeak?.invoke(t) }
+                main.post { onSpeak?.invoke(t); onTalking?.invoke(true) }
             }
-            override fun onDone(id: String?) {}
+            override fun onDone(id: String?) {
+                if (texts.containsKey(id)) main.post { onTalking?.invoke(false) }
+            }
             @Deprecated("Deprecated in Java")
-            override fun onError(id: String?) {}
+            override fun onError(id: String?) = handleError(id)
+            override fun onError(id: String?, errorCode: Int) = handleError(id)
         })
         ready = true
-        main.post { onReady?.invoke() }
-        pending?.invoke()
-        pending = null
+        DebugLog.add(app, "🔊 குரல் ரெடி: ${if (tamil) "Tamil" else "English"} · ${try { tts.voice?.name } catch (_: Exception) { "?" }}")
+        main.post {
+            onReady?.invoke()
+            pending?.invoke()
+            pending = null
+        }
+    }
+
+    /** தேர்ந்தெடுத்த voice வேலை செய்யலைன்னா → phone-ஓட default voice-க்கு மாறி மறுபடி சொல்லும் */
+    private fun handleError(id: String?) {
+        val t = texts[id] ?: return
+        DebugLog.add(app, "🔇 குரல் பிழை ($id) — default voice-க்கு மாறுது")
+        main.post {
+            onTalking?.invoke(false)
+            if (!fellBack) {
+                fellBack = true
+                try {
+                    tts.setLanguage(if (tamil) Locale("ta", "IN") else Locale("en", "IN"))
+                    tts.speak(t, TextToSpeech.QUEUE_ADD, null, "${id}_retry")
+                    texts["${id}_retry"] = t
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     val isTamil get() = tamil
 
+    /** Phone-லயே install ஆன நல்ல தரமான voice (internet இல்லாமலும் வேலை செய்யும்) */
     private fun pickBestVoice(lang: String) {
         try {
+            val installed = tts.voices?.filter { v ->
+                v.locale.language == lang && !v.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+            }.orEmpty()
+            val local = installed.filter { !it.isNetworkConnectionRequired }
             val online = app.getSystemService(ConnectivityManager::class.java)?.activeNetwork != null
-            val best = tts.voices
-                ?.filter { v ->
-                    v.locale.language == lang &&
-                        !v.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) &&
-                        (online || !v.isNetworkConnectionRequired)
-                }
-                ?.maxByOrNull { v ->
-                    v.quality * 10 + (if (v.isNetworkConnectionRequired) 50 else 0) +
-                        (if (v.locale.country == "IN") 5 else 0) - v.latency
-                }
+            val pool = local.ifEmpty { if (online) installed else emptyList() }
+            val best = pool.maxByOrNull { v ->
+                v.quality * 10 + (if (v.locale.country == "IN") 5 else 0) - v.latency
+            }
             if (best != null) tts.voice = best
         } catch (_: Exception) {
         }
@@ -93,15 +124,22 @@ class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
     fun stop() {
         pending = null
         try { tts.stop() } catch (_: Exception) {}
+        onTalking?.invoke(false)
     }
 
     fun shutdown() {
         stop()
-        onSpeak = null; onReady = null
+        onSpeak = null; onReady = null; onTalking = null
         tts.shutdown()
     }
 
     companion object {
+        /** குரலும் இசையும் ஒரே audio வழியில (ஒரே volume) */
+        val VOICE_ATTRS: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+
         /** Phone silent / vibrate-ல இருந்தா பேசாது. */
         fun soundAllowed(ctx: Context): Boolean =
             ctx.getSystemService(AudioManager::class.java).ringerMode == AudioManager.RINGER_MODE_NORMAL

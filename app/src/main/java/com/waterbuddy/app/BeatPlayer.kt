@@ -48,6 +48,11 @@ class BeatPlayer {
         }
     }
 
+    /** Buddy பேசும்போது இசையை குறை, முடிஞ்சதும் பழைய அளவு */
+    fun duck(on: Boolean) {
+        try { track?.setVolume(if (on) 0.08f else 0.32f) } catch (_: Exception) {}
+    }
+
     fun stop() {
         track?.let {
             try { it.stop() } catch (_: Exception) {}

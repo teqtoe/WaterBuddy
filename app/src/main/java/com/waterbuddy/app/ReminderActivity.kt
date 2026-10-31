@@ -48,6 +48,7 @@ class ReminderActivity : ComponentActivity() {
         if (ReminderStore.voiceOn.value && Speaker.soundAllowed(this)) {
             speaker = Speaker(this)
             beat = BeatPlayer().also { it.start() }
+            speaker?.onTalking = { talking -> beat?.duck(talking) }
         }
 
         setContent {
